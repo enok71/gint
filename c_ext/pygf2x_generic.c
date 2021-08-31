@@ -246,11 +246,10 @@ pygf2x_mul(PyObject *self, PyObject *args) {
         ndigs_p--;
     DBG_PRINTF("Product digits ! : %-4d\n",ndigs_p);
 
-    for(int i=0; i<ndigs_p; i++)
-      //DBG_PRINTF("digit %d = %08x\n", i, result[i]);
-      ;
+    //for(int i=0; i<ndigs_p; i++)
+    //  DBG_PRINTF("digit %d = %08x\n", i, result[i]);
+    //  ;
 
-    //PyLongObject *p = _PyLong_New(ndigs_p*sizeof(digit));
     PyLongObject *p = _PyLong_New(ndigs_p);
     for(int id=0; id<ndigs_p; id++)
         p->ob_digit[id] = result[id];
@@ -333,13 +332,15 @@ pygf2x_div(PyObject *self, PyObject *args) {
             //DBG_PRINTF("Bit %d is zero\n",nbi);
 	}
     }
-    printf("q digits: %d\n",ndigs_q);
-    //PyLongObject *q = _PyLong_New(ndigs_q*sizeof(digit));
+
     PyLongObject *q = _PyLong_New(ndigs_q);
+    while(q_digits[ndigs_q-1] == 0)
+      ndigs_q -= 1;
     for(int i=0; i<ndigs_q; i++)
         q->ob_digit[i] = q_digits[i];
-    printf("r digits: %d\n",ndigs_r);
-    //PyLongObject *r = _PyLong_New(ndigs_r*sizeof(digit));
+
+    while(r_digits[ndigs_r-1] == 0)
+      ndigs_r -= 1;
     PyLongObject *r = _PyLong_New(ndigs_r);
     for(int i=0; i<ndigs_r; i++)
         r->ob_digit[i] = r_digits[i];
