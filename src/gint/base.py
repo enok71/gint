@@ -47,12 +47,12 @@ class gint(int):
             raise TypeError('Cannot multiply %s with gint'%type(lhs))
         return gint(pygf2x.mul(lhs,self))
     
-    def __div__(self,rhs):
+    def __truediv__(self,rhs):
         if not isinstance(rhs, gint):
             raise TypeError('Cannot divide gint with %s'%type(rhs))
         return gint(pygf2x.div(self,rhs)[0])
 
-    def __rdiv__(self,lhs):
+    def __rtruediv__(self,lhs):
         if not isinstance(lhs, gint):
             raise TypeError('Cannot divide %s with gint'%type(lhs))
         return gint(pygf2x.div(self,rhs)[0])
