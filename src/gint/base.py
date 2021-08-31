@@ -87,6 +87,12 @@ class gint(int):
             raise TypeError('Cannot add %s with gint'%type(lhs))
         return gint(int.__xor__(lhs,self))
 
+    def __lshift__(self,shift):
+        return gint(int.__lshift__(self,shift))
+
+    def __rshift__(self,shift):
+        return gint(int.__rshift__(self,shift))
+
 
 def main():
     import random
