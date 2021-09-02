@@ -14,76 +14,162 @@
 import pygf2x_generic as pygf2x
 
 class gint(int):
+    ''' Unbounded polynomial over GF(2)
+    This class implements unlimited polynomials over GF(2).
+    It is derived from the built-in `int` object.
+    Overloaded operators for algebra include +,-,*,/,%,divmod.
+    Exponentiation with standard integer exponent using ** operator is allowed.
+    Boolean operators &,|,^ are supported, even with integers (returning gint)
+    Shift operators with integer shift is allowed.
+    '''
     def __init__(self, i0=0):
-        ''' Unbounded polynomial over GF(2) '''
+        ''' Create from integer '''
         int.__init__(i0)
     
-    def __mul__(self,rhs):
-        if not isinstance(rhs, gint):
-            raise TypeError('Cannot multiply gint with %s'%type(rhs))
-        return gint(pygf2x.mul(self,rhs))
+    def __mul__(self,value):
+        if not isinstance(value, gint):
+            raise TypeError('Cannot multiply gint with %s'%type(value))
+        return gint(pygf2x.mul(self,value))
 
-    def __rmul__(self,lhs):
-        if not isinstance(lhs, gint):
-            raise TypeError('Cannot multiply %s with gint'%type(lhs))
-        return gint(pygf2x.mul(lhs,self))
+    def __rmul__(self,value):
+        if not isinstance(value, gint):
+            raise TypeError('Cannot multiply %s with gint'%type(value))
+        return gint(pygf2x.mul(value,self))
     
-    def __truediv__(self,rhs):
-        if not isinstance(rhs, gint):
-            raise TypeError('Cannot divide gint with %s'%type(rhs))
-        return gint(pygf2x.div(self,rhs)[0])
+    def __truediv__(self,value):
+        if not isinstance(value, gint):
+            raise TypeError('Cannot divide gint with %s'%type(value))
+        return gint(pygf2x.div(self,value)[0])
 
-    def __rtruediv__(self,lhs):
-        if not isinstance(lhs, gint):
-            raise TypeError('Cannot divide %s with gint'%type(lhs))
-        return gint(pygf2x.div(self,rhs)[0])
+    def __rtruediv__(self,value):
+        if not isinstance(value, gint):
+            raise TypeError('Cannot divide %s with gint'%type(value))
+        return gint(pygf2x.div(self,value)[0])
 
-    def __divmod__(self, rhs):
-        if not isinstance(rhs, gint):
-            raise TypeError('Cannot divmod gint with %s'%type(rhs))
-        return tuple(map(lambda x : gint(x), pygf2x.div(self,rhs)))
+    def __floordiv__(self,value):
+        raise TypeError("Don't use // with gint")
 
-    def __rdivmod__(self, lhs):
-        if not isinstance(lhs, gint):
-            raise TypeError('Cannot divmod %s with gint'%type(lhs))
-        return tuple(map(lambda x : gint(x), pygf2x.div(lhs,self)))
+    def __rfloordiv__(self,value):
+        raise TypeError("Don't use // with gint")
 
-    def __mod__(self, rhs):
-        if not isinstance(rhs, gint):
-            raise TypeError('Cannot modulo gint with %s'%type(rhs))
-        return gint(pygf2x.div(self,rhs)[1])
+    def __divmod__(self, value):
+        if not isinstance(value, gint):
+            raise TypeError('Cannot divmod gint with %s'%type(value))
+        return tuple(map(lambda x : gint(x), pygf2x.div(self,value)))
 
-    def __rmod__(self, lhs):
-        if not isinstance(lhs, gint):
-            raise TypeError('Cannot modulo %s with gint'%type(lhs))
-        return gint(pygf2x.div(lhs,self)[1])
+    def __rdivmod__(self, value):
+        if not isinstance(value, gint):
+            raise TypeError('Cannot divmod %s with gint'%type(value))
+        return tuple(map(lambda x : gint(x), pygf2x.div(value,self)))
 
-    def __add__(self,rhs):
-        if not isinstance(rhs, gint):
-            raise TypeError('Cannot add gint with %s'%type(rhs))
-        return gint(int.__xor__(self,rhs))
+    def __mod__(self, value):
+        if not isinstance(value, gint):
+            raise TypeError('Cannot modulo gint with %s'%type(value))
+        return gint(pygf2x.div(self,value)[1])
+
+    def __rmod__(self, value):
+        if not isinstance(value, gint):
+            raise TypeError('Cannot modulo %s with gint'%type(value))
+        return gint(pygf2x.div(value,self)[1])
+
+    def __add__(self,value):
+        if not isinstance(value, gint):
+            raise TypeError('Cannot add gint with %s'%type(value))
+        return gint(int.__xor__(self,value))
     
-    def __radd__(self,lhs):
-        if not isinstance(lhs, gint):
-            raise TypeError('Cannot add %s with gint'%type(lhs))
-        return gint(int.__xor__(lhs,self))
+    def __radd__(self,value):
+        if not isinstance(value, gint):
+            raise TypeError('Cannot add %s with gint'%type(value))
+        return gint(int.__xor__(value,self))
 
-    def __sub__(self,rhs):
-        if not isinstance(rhs, gint):
-            raise TypeError('Cannot add gint with %s'%type(rhs))
-        return gint(int.__xor__(self,rhs))
+    def __sub__(self,value):
+        if not isinstance(value, gint):
+            raise TypeError('Cannot subtract %s from gint'%type(value))
+        return gint(int.__xor__(self,value))
     
-    def __rsub__(self,lhs):
-        if not isinstance(lhs, gint):
-            raise TypeError('Cannot add %s with gint'%type(lhs))
-        return gint(int.__xor__(lhs,self))
+    def __rsub__(self,value):
+        if not isinstance(value, gint):
+            raise TypeError('Cannot subtract gint from %s'%type(value))
+        return gint(int.__xor__(value,self))
 
+    def __neg__(self):
+        return gint(self)
+
+    def __pos__(self):
+        return gint(self)
+    
+    def __invert__(self):
+        raise TypeError("Cannot invert gint")
+    
     def __lshift__(self,shift):
         return gint(int.__lshift__(self,shift))
 
     def __rshift__(self,shift):
         return gint(int.__rshift__(self,shift))
 
+    def __or__(self,value):
+        return gint(int.__or__(self,value))
+
+    def __ror__(self,value):
+        return gint(int.__ror__(self,value))
+
+    def __and__(self,value):
+        return gint(int.__and__(self,value))
+
+    def __rand__(self,value):
+        return gint(int.__rand__(self,value))
+
+    def __xor__(self,value):
+        return gint(int.__xor__(self,value))
+    
+    def __rxor__(self,value):
+        return gint(int.__rxor__(self,value))
+
+    def __rrshift__(self,value):
+        raise TypeError("Don't use gint to right-shift")
+
+    def __rlshift__(self,value):
+        raise TypeError("Don't use gint to left-shift")
+    
+    def __index__(self,value):
+        raise TypeError("Don't use gint as index")
+
+    def __abs__(self):
+        raise TypeError("Abs of gint doesn't make sense")
+
+    def conjugate(self):
+        raise TypeError("Conjugate of gint doesn't make sense")
+
+    def __pow__(self, value):
+        if not type(value) is int or value<0:
+            raise TypeError("gint must only be exponentiated with a non-negative integer")
+        if value==0:
+            if not self:
+                raise ValueError("gint(0)^0 is undefined")
+            return gint(1)
+
+        if value==1:
+            return gint(self)
+        
+        result = gint(1)
+        prod = gint(self)
+        if value & 1:
+            result *= prod
+        value >>= 1
+        while value:
+            prod = prod*prod
+            if value & 1:
+                result *= prod
+            value >>= 1
+        return result
+
+    def __rpow__(self,value):
+        raise TypeError("gint as exponent doesn't make sense")
+
+    @classmethod
+    def from_bytes(value):
+        return gint(int.from_bytes(value))
+    
 def main():
     # Test
     import random
