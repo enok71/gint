@@ -11,12 +11,9 @@
 #define PY_SSIZE_T_CLEAN
 #include <Python.h>
 
-//#include <unistd.h>
-//#include <errno.h>
 #include <string.h>
 #include <stdio.h>
 
-//#define DEBUG_PYGF2X
 #ifdef DEBUG_PYGF2X
 #define DBG_PRINTF(...) printf(__VA_ARGS__)
 #else
@@ -46,7 +43,8 @@ static const uint16_t squares_8[256] = {
     0x5500,0x5501,0x5504,0x5505,0x5510,0x5511,0x5514,0x5515,0x5540,0x5541,0x5544,0x5545,0x5550,0x5551,0x5554,0x5555,
 };
 */
-  
+
+// Multiplication table up to 31x31, that is, 5-bit chunks.
 static const uint16_t mul_5_5[32][32] = {
     {0x000,0x000,0x000,0x000,0x000,0x000,0x000,0x000,0x000,0x000,0x000,0x000,0x000,0x000,0x000,0x000,
      0x000,0x000,0x000,0x000,0x000,0x000,0x000,0x000,0x000,0x000,0x000,0x000,0x000,0x000,0x000,0x000},
@@ -117,14 +115,6 @@ static const uint16_t mul_5_5[32][32] = {
 
 static inline int nbits(PyLongObject *integer) {
     // return 1-based index of the most significant non-zero bit, or 0 if all bits are zero
-    /*
-    int nd = ((PyVarObject *)integer)->ob_size;
-    int result;
-    frexp((double)integer->ob_digit[nd-1], &result);
-    result += BITS_PER_DIGIT*(nd-1);
-
-    return result;
-    */
     return _PyLong_NumBits((PyObject *)integer);
 }
 
@@ -196,9 +186,6 @@ pygf2x_mul(PyObject *self, PyObject *args) {
         return NULL;
     }
 
-    //int ndigs_l = ((PyVarObject *)fl)->ob_size;
-    //int ndigs_r = ((PyVarObject *)fr)->ob_size;
-    
     int nbits_l = nbits(fl);
     int nbits_r = nbits(fr);
 
@@ -215,8 +202,6 @@ pygf2x_mul(PyObject *self, PyObject *args) {
     DBG_PRINTF("Right factor bits: %-4d\n",nbits_r);
     DBG_PRINTF("Product digits ? : %-4d\n",ndigs_p);
 
-    //DBG_PRINTF("n5_p=%d\n",n5_p);
-
     for(int i=0; i<n5_p; i++) {
         uint16_t p5 = 0;
 	int je = i;
@@ -232,23 +217,22 @@ pygf2x_mul(PyObject *self, PyObject *args) {
 	    uint8_t d5_l = ((fl->ob_digit[jdl])>>(5*(jl%N5_PER_DIGIT)))&0x1f;
 	    uint8_t d5_r = ((fr->ob_digit[jdr])>>(5*(jr%N5_PER_DIGIT)))&0x1f;
 	    uint16_t pi = mul_5_5[d5_l][d5_r];
-	    //DBG_PRINTF("i=%-2d jb=%-2d je=%-2d jl=%-2d jr=%-2d d5_l=%02x d5_r=%02x pi=%04x\n",i,jb,je,jl,jr,d5_l,d5_r,pi);
 	    p5 ^= pi;
 	}
-	//DBG_PRINTF("p5=%04x\n",p5);
 	uint8_t p5l = p5&0x1f;
 	uint8_t p5h = p5>>5;
-	//DBG_PRINTF("i=%d id=%d\n",i,i/N5_PER_DIGIT);
+
 	result[i/N5_PER_DIGIT] ^= p5l<<(5*(i%N5_PER_DIGIT));
 	result[(i+1)/N5_PER_DIGIT] ^= p5h<<(5*((i+1)%N5_PER_DIGIT));
     }
+
+    // Remove zero digits
     while(result[ndigs_p-1]==0)
         ndigs_p--;
     DBG_PRINTF("Product digits ! : %-4d\n",ndigs_p);
 
     //for(int i=0; i<ndigs_p; i++)
     //  DBG_PRINTF("digit %d = %08x\n", i, result[i]);
-    //  ;
 
     PyLongObject *p = _PyLong_New(ndigs_p);
     for(int id=0; id<ndigs_p; id++)
@@ -284,9 +268,6 @@ pygf2x_div(PyObject *self, PyObject *args) {
     int nbits_n = nbits(numerator);
     int ndigs_n = (nbits_n+BITS_PER_DIGIT-1)/BITS_PER_DIGIT;
 
-    //printf("d digits %d\n",((PyVarObject *)denominator)->ob_size);
-    //printf("n digits %d %d\n",ndigs_n,((PyVarObject *)numerator)->ob_size);
-    
     if(nbits_d == 0) {
         PyErr_SetString(PyExc_ZeroDivisionError, "Denominator is zero");
         return NULL;
@@ -312,39 +293,36 @@ pygf2x_div(PyObject *self, PyObject *args) {
         int ndbi = nbi-ndi*BITS_PER_DIGIT; // Bit position in digit
         if(r_digits[ndi] & (1<<ndbi)) {
             // Numerator bit is set. Set quotient bit and subtract denominator
-            //DBG_PRINTF("Bit %d is set\n",nbi);
 	    int qbi  = nbi - nbits_d +1;
-            //DBG_PRINTF("qbi=%d\n",qbi);
 	    int qdi  =  (qbi/BITS_PER_DIGIT);   // Digit position
 	    int qdbi = qbi-qdi*BITS_PER_DIGIT;  // Bit position in digit
 	    q_digits[qdi] |= (1<<qdbi);
             for(int dbi  = nbits_d-1; dbi >= 0 ; dbi--) {
-	        //DBG_PRINTF("dbi=%d\n",dbi);
                 int ddi  = (dbi/BITS_PER_DIGIT);   // Digit position
                 int ddbi = dbi-ddi*BITS_PER_DIGIT; // Bit position in digit
 		int rbi  = nbi - (nbits_d-1 - dbi);
-	        //DBG_PRINTF("rbi=%d\n",rbi);
 		int rdi  = (rbi/BITS_PER_DIGIT);   // Digit position
                 int rdbi = rbi-rdi*BITS_PER_DIGIT; // Bit position in digit
 		r_digits[rdi] ^= ((denominator->ob_digit[ddi]>>ddbi)&1)<<rdbi;
 	    }
-        } else {
-            //DBG_PRINTF("Bit %d is zero\n",nbi);
-	}
+        }
     }
 
-    PyLongObject *q = _PyLong_New(ndigs_q);
+    
+    // Remove leading zero digits
     while(q_digits[ndigs_q-1] == 0)
       ndigs_q -= 1;
+    PyLongObject *q = _PyLong_New(ndigs_q);
     for(int i=0; i<ndigs_q; i++)
         q->ob_digit[i] = q_digits[i];
 
+    // Remove leading zero digits
     while(r_digits[ndigs_r-1] == 0)
       ndigs_r -= 1;
     PyLongObject *r = _PyLong_New(ndigs_r);
     for(int i=0; i<ndigs_r; i++)
         r->ob_digit[i] = r_digits[i];
-    //printf("Kilroy was here\n");
+
     return Py_BuildValue("OO", q, r);
 }
 
@@ -374,14 +352,9 @@ PyMethodDef pygf2x_generic_functions[] =
 
 struct PyModuleDef pygf2x_generic_module =
 {
-/*
- *  Structure which defines the module.
- *
- *  For more info look at: https://docs.python.org/3/c-api/module.html
- *
- */
+  // Python module definition
     .m_base = PyModuleDef_HEAD_INIT,
-    .m_name = "pygf2x_generic",             // Name of the module.
+    .m_name = "pygf2x_generic",       // Name of the module.
     .m_doc  = NULL,                   // Docstring for the module - in this case empty.
     .m_size = -1,                     // Used by sub-interpreters, if you do not know what
                                       // it is then you do not need it, keep -1 .
@@ -396,13 +369,7 @@ struct PyModuleDef pygf2x_generic_module =
 
 PyMODINIT_FUNC PyInit_pygf2x_generic(void)
 {
-/*
- *   Function which initialises the Python module.
- *
- *   Note:  This function must be named "PyInit_MODULENAME",
- *          where "MODULENAME" is the name of the module.
- *
- */
+  // Python module initialization
     PyObject *pygf2x = PyModule_Create(&pygf2x_generic_module);
 
     return pygf2x;
