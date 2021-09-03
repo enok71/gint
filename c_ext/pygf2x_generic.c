@@ -24,6 +24,7 @@ static const unsigned int BITS_PER_DIGIT = sizeof(digit)*8*15/16;
 static const unsigned int N5_PER_DIGIT = sizeof(digit)*8*3/16;
 
 /*
+// Not used, for now
 static const uint16_t squares_8[256] = {
     0x0000,0x0001,0x0004,0x0005,0x0010,0x0011,0x0014,0x0015,0x0040,0x0041,0x0044,0x0045,0x0050,0x0051,0x0054,0x0055,
     0x0100,0x0101,0x0104,0x0105,0x0110,0x0111,0x0114,0x0115,0x0140,0x0141,0x0144,0x0145,0x0150,0x0151,0x0154,0x0155,
@@ -118,7 +119,9 @@ static inline int nbits(PyLongObject *integer) {
     return _PyLong_NumBits((PyObject *)integer);
 }
 
-static uint16_t
+/*
+// This function is dead code, for now
+static uint32_t
 mul_15_15(uint16_t l, uint16_t r) {
     // Multiply two unsigned 15-bit integers (stored in uint16_t)
     uint8_t l0 = l&0x1f;
@@ -144,7 +147,10 @@ mul_15_15(uint16_t l, uint16_t r) {
         
     return p;
 }
+*/
 
+/*
+// This function is dead code, for now
 static uint64_t
 mul_30_30(uint32_t l, uint32_t r) {
     // Multiply two 30-bit unsigned integers (stored in uint32_t)
@@ -163,7 +169,7 @@ mul_30_30(uint32_t l, uint32_t r) {
 
     return p;
 }
-
+*/
 static PyObject *
 pygf2x_mul(PyObject *self, PyObject *args) {
     // Multiply two Python integers, interpreted as polynomials over GF(2)
@@ -227,12 +233,12 @@ pygf2x_mul(PyObject *self, PyObject *args) {
     }
 
     // Remove zero digits
-    while(result[ndigs_p-1]==0)
-        ndigs_p--;
+    while(result[ndigs_p-1]==0 && ndigs_p > 1)
+        ndigs_p -= 1;
     DBG_PRINTF("Product digits ! : %-4d\n",ndigs_p);
 
-    //for(int i=0; i<ndigs_p; i++)
-    //  DBG_PRINTF("digit %d = %08x\n", i, result[i]);
+    for(int i=0; i<ndigs_p; i++)
+      DBG_PRINTF("digit %d = %08x\n", i, result[i]);
 
     PyLongObject *p = _PyLong_New(ndigs_p);
     for(int id=0; id<ndigs_p; id++)
@@ -308,16 +314,15 @@ pygf2x_div(PyObject *self, PyObject *args) {
         }
     }
 
-    
     // Remove leading zero digits
-    while(q_digits[ndigs_q-1] == 0)
+    while(q_digits[ndigs_q-1] == 0 && ndigs_q > 1)
       ndigs_q -= 1;
     PyLongObject *q = _PyLong_New(ndigs_q);
     for(int i=0; i<ndigs_q; i++)
         q->ob_digit[i] = q_digits[i];
 
     // Remove leading zero digits
-    while(r_digits[ndigs_r-1] == 0)
+    while(r_digits[ndigs_r-1] == 0 && ndigs_r > 1)
       ndigs_r -= 1;
     PyLongObject *r = _PyLong_New(ndigs_r);
     for(int i=0; i<ndigs_r; i++)
