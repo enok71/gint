@@ -157,7 +157,7 @@ class gint(int):
             result *= prod
         value >>= 1
         while value:
-            prod = prod*prod
+            prod = pygf2x.sqr(prod)
             if value & 1:
                 result *= prod
             value >>= 1

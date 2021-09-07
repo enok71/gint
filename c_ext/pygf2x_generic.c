@@ -22,10 +22,11 @@
 
 static const unsigned int BITS_PER_DIGIT = sizeof(digit)*8*15/16;
 static const unsigned int N5_PER_DIGIT = sizeof(digit)*8*3/16;
+static const unsigned int N15_PER_DIGIT = sizeof(digit)*8/16;
 
-/*
-// Not used, for now
-static const uint16_t squares_8[256] = {
+
+// Squares up to 255x255 (8-bit chunk size)
+static const uint16_t sqr_8[256] = {
     0x0000,0x0001,0x0004,0x0005,0x0010,0x0011,0x0014,0x0015,0x0040,0x0041,0x0044,0x0045,0x0050,0x0051,0x0054,0x0055,
     0x0100,0x0101,0x0104,0x0105,0x0110,0x0111,0x0114,0x0115,0x0140,0x0141,0x0144,0x0145,0x0150,0x0151,0x0154,0x0155,
     0x0400,0x0401,0x0404,0x0405,0x0410,0x0411,0x0414,0x0415,0x0440,0x0441,0x0444,0x0445,0x0450,0x0451,0x0454,0x0455,
@@ -43,7 +44,7 @@ static const uint16_t squares_8[256] = {
     0x5400,0x5401,0x5404,0x5405,0x5410,0x5411,0x5414,0x5415,0x5440,0x5441,0x5444,0x5445,0x5450,0x5451,0x5454,0x5455,
     0x5500,0x5501,0x5504,0x5505,0x5510,0x5511,0x5514,0x5515,0x5540,0x5541,0x5544,0x5545,0x5550,0x5551,0x5554,0x5555,
 };
-*/
+
 
 // Multiplication table up to 31x31, that is, 5-bit chunks.
 static const uint16_t mul_5_5[32][32] = {
@@ -170,6 +171,68 @@ mul_30_30(uint32_t l, uint32_t r) {
     return p;
 }
 */
+
+
+static PyObject *
+pygf2x_sqr(PyObject *self, PyObject *args) {
+    // Square one Python integer, interpreted as polynomial over GF(2)
+    (void)self;
+
+    PyLongObject *f;
+    if (!PyArg_ParseTuple(args, "O", &f)) {
+        PyErr_SetString(PyExc_TypeError, "Failed to parse arguments");
+        return NULL;
+    }
+
+    if( ! PyLong_Check(f) ) {
+        PyErr_SetString(PyExc_TypeError, "Arguments must be integer");
+        return NULL;
+    }
+    if(((PyVarObject *)f)->ob_size < 0) {
+        PyErr_SetString(PyExc_ValueError, "Argument must be non-negative");
+        return NULL;
+    }
+
+    int nbits_f = nbits(f);
+
+    int n15_f = (nbits_f+14)/15;
+    int n15_p = n15_f*2;
+
+    int ndigs_p = (n15_p+N15_PER_DIGIT-1)/N15_PER_DIGIT;
+    digit result[ndigs_p];
+    memset(result,0,ndigs_p*sizeof(digit));
+    
+    DBG_PRINTF("Bits per digit   = %-4d\n",BITS_PER_DIGIT);
+    DBG_PRINTF("factor bits      = %-4d\n",nbits_f);
+    DBG_PRINTF("Product digits  <= %-4d\n",ndigs_p);
+
+    for(int i=0; i<n15_f; i++) {
+        uint16_t ph = 0, pl = 0;
+	int id = i/N15_PER_DIGIT;
+	uint16_t f15 = (f->ob_digit[id]>>(15*(i%N15_PER_DIGIT)))&0x7fff;
+	pl = sqr_8[f15 & 0xff];
+	ph = (sqr_8[(f15>>8) & 0x7f]<<1) | (pl>>15);
+	pl &= 0x7fff;
+	result[(2*i  )/N15_PER_DIGIT] ^= ((digit)pl<<(15*((2*i  )%N15_PER_DIGIT)));
+	result[(2*i+1)/N15_PER_DIGIT] ^= ((digit)ph<<(15*((2*i+1)%N15_PER_DIGIT)));
+    }
+
+    // Remove zero digits
+    while(ndigs_p > 0 && result[ndigs_p-1]==0)
+        ndigs_p -= 1;
+    DBG_PRINTF("Product digits   = %-4d\n",ndigs_p);
+
+    for(int i=0; i<ndigs_p; i++)
+      DBG_PRINTF("digit %d = %08x\n", i, result[i]);
+
+    PyLongObject *p = _PyLong_New(ndigs_p);
+    for(int id=0; id<ndigs_p; id++)
+        p->ob_digit[id] = result[id];
+      
+    return Py_BuildValue("O",p);
+}
+
+
 static PyObject *
 pygf2x_mul(PyObject *self, PyObject *args) {
     // Multiply two Python integers, interpreted as polynomials over GF(2)
@@ -199,14 +262,14 @@ pygf2x_mul(PyObject *self, PyObject *args) {
     int n5_r = (nbits_r+4)/5;
     int n5_p = n5_l+n5_r;
 
-    int ndigs_p = (n5_l+n5_r+N5_PER_DIGIT-1)/N5_PER_DIGIT;
+    int ndigs_p = (n5_p+N5_PER_DIGIT-1)/N5_PER_DIGIT;
     digit result[ndigs_p];
     memset(result,0,ndigs_p*sizeof(digit));
     
-    DBG_PRINTF("Bits per digit   : %-4d\n",BITS_PER_DIGIT);
-    DBG_PRINTF("Left factor bits : %-4d\n",nbits_l);
-    DBG_PRINTF("Right factor bits: %-4d\n",nbits_r);
-    DBG_PRINTF("Product digits ? : %-4d\n",ndigs_p);
+    DBG_PRINTF("Bits per digit   = %-4d\n",BITS_PER_DIGIT);
+    DBG_PRINTF("Left factor bits = %-4d\n",nbits_l);
+    DBG_PRINTF("Right factor bits= %-4d\n",nbits_r);
+    DBG_PRINTF("Product digits  <= %-4d\n",ndigs_p);
 
     for(int i=0; i<n5_p; i++) {
         uint16_t p5 = 0;
@@ -235,7 +298,7 @@ pygf2x_mul(PyObject *self, PyObject *args) {
     // Remove zero digits
     while(ndigs_p > 0 && result[ndigs_p-1]==0)
         ndigs_p -= 1;
-    DBG_PRINTF("Product digits ! : %-4d\n",ndigs_p);
+    DBG_PRINTF("Product digits   = %-4d\n",ndigs_p);
 
     for(int i=0; i<ndigs_p; i++)
       DBG_PRINTF("digit %d = %08x\n", i, result[i]);
@@ -345,6 +408,12 @@ PyMethodDef pygf2x_generic_functions[] =
         pygf2x_mul,
         METH_VARARGS,
         "Multiply two integers as polynomials over GF(2)"
+    },
+    {
+        "sqr",
+        pygf2x_sqr,
+        METH_VARARGS,
+        "Square one integer as polynomial over GF(2)"
     },
     {
         NULL,                   // const char  *ml_name;  /* The name of the built-in function/method   */
