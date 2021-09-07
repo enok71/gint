@@ -279,13 +279,14 @@ pygf2x_div(PyObject *self, PyObject *args) {
         return NULL;
     }
     int nbits_q = nbits_n-nbits_d+1 > 0 ? nbits_n-nbits_d+1 : 0;
-    int nbits_r = nbits_d-1;
+    int nbits_r = nbits_n > nbits_d-1 ? nbits_n : nbits_d-1;
     int ndigs_q = (nbits_q+BITS_PER_DIGIT-1)/BITS_PER_DIGIT;
     int ndigs_r = (nbits_r+BITS_PER_DIGIT-1)/BITS_PER_DIGIT;
 
     digit q_digits[ndigs_q];
     memset(q_digits,0,ndigs_q*sizeof(digit));
-    digit r_digits[ndigs_n]; // Initialize to numerator
+    digit r_digits[ndigs_r]; // Initialize to numerator
+    memset(r_digits+ndigs_n,0,(ndigs_r-ndigs_n)*sizeof(digit));
     memcpy(r_digits, numerator->ob_digit, ndigs_n*sizeof(digit));
     
     DBG_PRINTF("Bits per digit  : %-4d\n",BITS_PER_DIGIT);
