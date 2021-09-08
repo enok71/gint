@@ -222,8 +222,10 @@ pygf2x_sqr(PyObject *self, PyObject *args) {
         ndigs_p -= 1;
     DBG_PRINTF("Product digits   = %-4d\n",ndigs_p);
 
+    DBG_PRINTF("digits:");
     for(int i=0; i<ndigs_p; i++)
-      DBG_PRINTF("digit %d = %08x\n", i, result[i]);
+      DBG_PRINTF(",%08x", result[i]);
+    DBG_PRINTF("\n");
 
     PyLongObject *p = _PyLong_New(ndigs_p);
     for(int id=0; id<ndigs_p; id++)
@@ -300,8 +302,10 @@ pygf2x_mul(PyObject *self, PyObject *args) {
         ndigs_p -= 1;
     DBG_PRINTF("Product digits   = %-4d\n",ndigs_p);
 
+    DBG_PRINTF("digits:");
     for(int i=0; i<ndigs_p; i++)
-      DBG_PRINTF("digit %d = %08x\n", i, result[i]);
+      DBG_PRINTF(",%08x", result[i]);
+    DBG_PRINTF("\n");
 
     PyLongObject *p = _PyLong_New(ndigs_p);
     for(int id=0; id<ndigs_p; id++)
@@ -309,6 +313,7 @@ pygf2x_mul(PyObject *self, PyObject *args) {
       
     return Py_BuildValue("O",p);
 }
+
 
 static PyObject *
 pygf2x_div(PyObject *self, PyObject *args) {
@@ -321,7 +326,7 @@ pygf2x_div(PyObject *self, PyObject *args) {
         PyErr_SetString(PyExc_TypeError, "Failed to parse arguments");
         return NULL;
     }
-
+    
     if( ! PyLong_Check(numerator) ||
         ! PyLong_Check(denominator) ) {
         PyErr_SetString(PyExc_TypeError, "Both arguments must be integers");
@@ -381,6 +386,11 @@ pygf2x_div(PyObject *self, PyObject *args) {
     // Remove leading zero digits
     while(ndigs_q > 0 && q_digits[ndigs_q-1] == 0)
       ndigs_q -= 1;
+    DBG_PRINTF("q digits:");
+    for(int i=0; i<ndigs_q; i++)
+      DBG_PRINTF(",%08x", q_digits[i]);
+    DBG_PRINTF("\n");
+    
     PyLongObject *q = _PyLong_New(ndigs_q);
     for(int i=0; i<ndigs_q; i++)
         q->ob_digit[i] = q_digits[i];
@@ -388,6 +398,11 @@ pygf2x_div(PyObject *self, PyObject *args) {
     // Remove leading zero digits
     while(ndigs_r > 0 && r_digits[ndigs_r-1] == 0)
       ndigs_r -= 1;
+    DBG_PRINTF("r digits:");
+    for(int i=0; i<ndigs_r; i++)
+      DBG_PRINTF(",%08x", r_digits[i]);
+    DBG_PRINTF("\n");
+    
     PyLongObject *r = _PyLong_New(ndigs_r);
     for(int i=0; i<ndigs_r; i++)
         r->ob_digit[i] = r_digits[i];
