@@ -1,3 +1,4 @@
+/* -*- mode: c; c-basic-offset: 4; -*- */
 /*******************************************************************************
  *
  * Copyright (c) 2020 Oskar Enoksson. All rights reserved.
@@ -14,16 +15,40 @@
 #include <string.h>
 #include <stdio.h>
 
+//#define DEBUG_PYGF2X
 #ifdef DEBUG_PYGF2X
 #define DBG_PRINTF(...) printf(__VA_ARGS__)
+#define DBG_PRINTF0(...) printf(__VA_ARGS__)
+#define DBG_PRINTF_DIGITS(msg,digits,ndigs) { DBG_PRINTF(msg); for(int i=ndigs-1; i>=0; i--) DBG_PRINTF("%08x", digits[i]); DBG_PRINTF("\n"); }
+#include <execinfo.h>
+#define DBG_ASSERT(x) { if (! (x) ) { fprintf(stderr,"Assertion failed on line %d: %s\n",__LINE__,#x); my_abort(); } }
+static void my_abort() {
+  void *array[3];
+  size_t size;
+
+  // get void*'s for all entries on the stack
+  size = backtrace(array, 3);
+
+  // print out all the frames to stderr
+  backtrace_symbols_fd(array, size, STDERR_FILENO);
+  exit(1);
+}
 #else
 #define DBG_PRINTF(...)
+#define DBG_PRINTF0(...)
+#define DBG_PRINTF_DIGITS(...)
+#define DBG_ASSERT(x)
 #endif
 
-static const unsigned int BITS_PER_DIGIT = sizeof(digit)*8*15/16;
-static const unsigned int N5_PER_DIGIT = sizeof(digit)*8*3/16;
-static const unsigned int N15_PER_DIGIT = sizeof(digit)*8/16;
+static const int BITS_PER_DIGIT = sizeof(digit)*8*15/16;
+static const int N5_PER_DIGIT = sizeof(digit)*8*3/16;
+static const int N15_PER_DIGIT = sizeof(digit)*8/16;
+#define GF2X_MAX(a,b) ((a>b) ? (a) : (b))
+#define GF2X_MIN(a,b) ((a<b) ? (a) : (b))
 
+static const int LIMIT_DIV_BITWISE = 5;
+#define NDIV 10
+#define inv_NDIV inv_10
 
 // Squares up to 255x255 (8-bit chunk size)
 static const uint16_t sqr_8[256] = {
@@ -114,6 +139,44 @@ static const uint16_t mul_5_5[32][32] = {
      0x1f0,0x1ef,0x1ce,0x1d1,0x18c,0x193,0x1b2,0x1ad,0x108,0x117,0x136,0x129,0x174,0x16b,0x14a,0x155},
 };
 
+
+// Inverse table for 2^(N-1)..2^N-1, N-bit denominators with msb=1.
+// Table lists inv(d) where
+// 1<<(2N-2) + rem(d) == inv(d)*d
+// inv(d) is N-bits (msb always=1) and rem(d) is N-1 bits
+// To perform division: seek q and r such that
+// u = q*d +r
+// were u is 2N-1 bits and d is N bits (d has msb=1). q is N bits and r is N-1 bits
+// u*inv(d) = q*d*inv(d) + r*inv(d)
+//          = (q<<(2N-2)) + q*rem(d) + r*inv(d)
+// The highest N bits of u*inv(d) must be q, because the other terms are <=2N-2 bits
+//
+/*
+static const uint8_t inv_8[1<<7] = {
+  0x80,0x81,0x82,0x83,0x84,0x85,0x86,0x87,0x88,0x89,0x8a,0x8b,0x8c,0x8d,0x8e,0x8f,0x92,0x93,0x90,0x91,0x96,0x97,0x94,0x95,0x9a,0x9b,0x98,0x99,0x9e,0x9f,0x9c,0x9d,
+  0xaa,0xab,0xa8,0xa9,0xae,0xaf,0xac,0xad,0xa2,0xa3,0xa0,0xa1,0xa6,0xa7,0xa4,0xa5,0xb9,0xb8,0xbb,0xba,0xbd,0xbc,0xbf,0xbe,0xb1,0xb0,0xb3,0xb2,0xb5,0xb4,0xb7,0xb6,
+  0xff,0xfe,0xfd,0xfc,0xfa,0xfb,0xf8,0xf9,0xf5,0xf4,0xf7,0xf6,0xf0,0xf1,0xf2,0xf3,0xe9,0xe8,0xeb,0xea,0xec,0xed,0xee,0xef,0xe3,0xe2,0xe1,0xe0,0xe6,0xe7,0xe4,0xe5,
+  0xdb,0xda,0xd9,0xd8,0xde,0xdf,0xdc,0xdd,0xd1,0xd0,0xd3,0xd2,0xd4,0xd5,0xd6,0xd7,0xcc,0xcd,0xce,0xcf,0xc9,0xc8,0xcb,0xca,0xc6,0xc7,0xc4,0xc5,0xc3,0xc2,0xc1,0xc0,
+};
+*/
+static const uint16_t inv_10[1<<9] = {
+0x200,0x201,0x202,0x203,0x204,0x205,0x206,0x207,0x208,0x209,0x20a,0x20b,0x20c,0x20d,0x20e,0x20f,0x210,0x211,0x212,0x213,0x214,0x215,0x216,0x217,0x218,0x219,0x21a,0x21b,0x21c,0x21d,0x21e,0x21f,
+0x222,0x223,0x220,0x221,0x226,0x227,0x224,0x225,0x22a,0x22b,0x228,0x229,0x22e,0x22f,0x22c,0x22d,0x232,0x233,0x230,0x231,0x236,0x237,0x234,0x235,0x23a,0x23b,0x238,0x239,0x23e,0x23f,0x23c,0x23d,
+0x249,0x248,0x24b,0x24a,0x24d,0x24c,0x24f,0x24e,0x241,0x240,0x243,0x242,0x245,0x244,0x247,0x246,0x259,0x258,0x25b,0x25a,0x25d,0x25c,0x25f,0x25e,0x251,0x250,0x253,0x252,0x255,0x254,0x257,0x256,
+0x26b,0x26a,0x269,0x268,0x26f,0x26e,0x26d,0x26c,0x263,0x262,0x261,0x260,0x267,0x266,0x265,0x264,0x27b,0x27a,0x279,0x278,0x27f,0x27e,0x27d,0x27c,0x273,0x272,0x271,0x270,0x277,0x276,0x275,0x274,
+0x2aa,0x2ab,0x2a8,0x2a9,0x2ae,0x2af,0x2ac,0x2ad,0x2a2,0x2a3,0x2a0,0x2a1,0x2a6,0x2a7,0x2a4,0x2a5,0x2bb,0x2ba,0x2b9,0x2b8,0x2bf,0x2be,0x2bd,0x2bc,0x2b3,0x2b2,0x2b1,0x2b0,0x2b7,0x2b6,0x2b5,0x2b4,
+0x28a,0x28b,0x288,0x289,0x28e,0x28f,0x28c,0x28d,0x282,0x283,0x280,0x281,0x286,0x287,0x284,0x285,0x29b,0x29a,0x299,0x298,0x29f,0x29e,0x29d,0x29c,0x293,0x292,0x291,0x290,0x297,0x296,0x295,0x294,
+0x2e5,0x2e4,0x2e7,0x2e6,0x2e1,0x2e0,0x2e3,0x2e2,0x2ed,0x2ec,0x2ef,0x2ee,0x2e9,0x2e8,0x2eb,0x2ea,0x2f4,0x2f5,0x2f6,0x2f7,0x2f0,0x2f1,0x2f2,0x2f3,0x2fc,0x2fd,0x2fe,0x2ff,0x2f8,0x2f9,0x2fa,0x2fb,
+0x2c5,0x2c4,0x2c7,0x2c6,0x2c1,0x2c0,0x2c3,0x2c2,0x2cd,0x2cc,0x2cf,0x2ce,0x2c9,0x2c8,0x2cb,0x2ca,0x2d4,0x2d5,0x2d6,0x2d7,0x2d0,0x2d1,0x2d2,0x2d3,0x2dc,0x2dd,0x2de,0x2df,0x2d8,0x2d9,0x2da,0x2db,
+0x3ff,0x3fe,0x3fd,0x3fc,0x3fa,0x3fb,0x3f8,0x3f9,0x3f5,0x3f4,0x3f7,0x3f6,0x3f0,0x3f1,0x3f2,0x3f3,0x3ea,0x3eb,0x3e8,0x3e9,0x3ef,0x3ee,0x3ed,0x3ec,0x3e0,0x3e1,0x3e2,0x3e3,0x3e5,0x3e4,0x3e7,0x3e6,
+0x3d6,0x3d7,0x3d4,0x3d5,0x3d3,0x3d2,0x3d1,0x3d0,0x3dc,0x3dd,0x3de,0x3df,0x3d9,0x3d8,0x3db,0x3da,0x3c3,0x3c2,0x3c1,0x3c0,0x3c6,0x3c7,0x3c4,0x3c5,0x3c9,0x3c8,0x3cb,0x3ca,0x3cc,0x3cd,0x3ce,0x3cf,
+0x3a7,0x3a6,0x3a5,0x3a4,0x3a2,0x3a3,0x3a0,0x3a1,0x3ad,0x3ac,0x3af,0x3ae,0x3a8,0x3a9,0x3aa,0x3ab,0x3b2,0x3b3,0x3b0,0x3b1,0x3b7,0x3b6,0x3b5,0x3b4,0x3b8,0x3b9,0x3ba,0x3bb,0x3bd,0x3bc,0x3bf,0x3be,
+0x38e,0x38f,0x38c,0x38d,0x38b,0x38a,0x389,0x388,0x384,0x385,0x386,0x387,0x381,0x380,0x383,0x382,0x39b,0x39a,0x399,0x398,0x39e,0x39f,0x39c,0x39d,0x391,0x390,0x393,0x392,0x394,0x395,0x396,0x397,
+0x36d,0x36c,0x36f,0x36e,0x368,0x369,0x36a,0x36b,0x367,0x366,0x365,0x364,0x362,0x363,0x360,0x361,0x379,0x378,0x37b,0x37a,0x37c,0x37d,0x37e,0x37f,0x373,0x372,0x371,0x370,0x376,0x377,0x374,0x375,
+0x346,0x347,0x344,0x345,0x343,0x342,0x341,0x340,0x34c,0x34d,0x34e,0x34f,0x349,0x348,0x34b,0x34a,0x352,0x353,0x350,0x351,0x357,0x356,0x355,0x354,0x358,0x359,0x35a,0x35b,0x35d,0x35c,0x35f,0x35e,
+0x333,0x332,0x331,0x330,0x336,0x337,0x334,0x335,0x339,0x338,0x33b,0x33a,0x33c,0x33d,0x33e,0x33f,0x327,0x326,0x325,0x324,0x322,0x323,0x320,0x321,0x32d,0x32c,0x32f,0x32e,0x328,0x329,0x32a,0x32b,
+0x318,0x319,0x31a,0x31b,0x31d,0x31c,0x31f,0x31e,0x312,0x313,0x310,0x311,0x317,0x316,0x315,0x314,0x30c,0x30d,0x30e,0x30f,0x309,0x308,0x30b,0x30a,0x306,0x307,0x304,0x305,0x303,0x302,0x301,0x300,
+};
 
 static inline int nbits(PyLongObject *integer) {
     // return 1-based index of the most significant non-zero bit, or 0 if all bits are zero
@@ -222,10 +285,7 @@ pygf2x_sqr(PyObject *self, PyObject *args) {
         ndigs_p -= 1;
     DBG_PRINTF("Product digits   = %-4d\n",ndigs_p);
 
-    DBG_PRINTF("digits:");
-    for(int i=0; i<ndigs_p; i++)
-      DBG_PRINTF(",%08x", result[i]);
-    DBG_PRINTF("\n");
+    DBG_PRINTF_DIGITS("digits:",result,ndigs_p);
 
     PyLongObject *p = _PyLong_New(ndigs_p);
     for(int id=0; id<ndigs_p; id++)
@@ -279,7 +339,7 @@ pygf2x_mul(PyObject *self, PyObject *args) {
 	if(je > n5_l)
            je = n5_l;
 	int jb = 0;
-	if(i-jb > n5_r)
+	if(i > n5_r)
             jb = i-n5_r;
         for(int jl=jb; jl<=je; jl++) {
             int jr = i-jl;
@@ -302,10 +362,7 @@ pygf2x_mul(PyObject *self, PyObject *args) {
         ndigs_p -= 1;
     DBG_PRINTF("Product digits   = %-4d\n",ndigs_p);
 
-    DBG_PRINTF("digits:");
-    for(int i=0; i<ndigs_p; i++)
-      DBG_PRINTF(",%08x", result[i]);
-    DBG_PRINTF("\n");
+    DBG_PRINTF_DIGITS("digits:",result,ndigs_p);
 
     PyLongObject *p = _PyLong_New(ndigs_p);
     for(int id=0; id<ndigs_p; id++)
@@ -314,11 +371,58 @@ pygf2x_mul(PyObject *self, PyObject *args) {
     return Py_BuildValue("O",p);
 }
 
+static inline uint16_t extract_chunk(const digit *digits, int ib, int nch, const int ndigs)
+// return nch-bit chunk of data extracted from digits, at msbit position ib.
+// Max value for nch is 15 because BITS_PER_DIGIT can be 15
+{
+    DBG_ASSERT(nch <= 15);
+    DBG_ASSERT(nch <= BITS_PER_DIGIT);
+    DBG_ASSERT(nch-1 <= ib);
+    DBG_ASSERT(ib < BITS_PER_DIGIT*ndigs);
+    int id  = ib/BITS_PER_DIGIT;  // Digit position of most significant bit
+    int ibd = ib%BITS_PER_DIGIT;  // Bit position in digit
+    uint16_t ch;
+    if(ibd >= nch-1) {
+	// The chunk is contained in one single digit
+	DBG_ASSERT(id >=0 && id < ndigs);
+	ch = digits[id] >> (ibd - (nch-1));
+    } else {
+	// The chunk is split between two digits
+	DBG_ASSERT(id >=1 && id < ndigs);
+	ch = (digits[id  ] << ((nch-1) - ibd))
+	    |(digits[id-1] >> (BITS_PER_DIGIT - ((nch-1) - ibd)));
+    }
+    return ch;
+}
+
+static inline void add_chunk(digit *digits, int ib, int nch, uint16_t value, const int ndigs)
+// Add (xor) nch-bit chunk of data to digits, at msbit position ib.
+// Max value for nch is 15 because BITS_PER_DIGIT can be 15
+{
+    DBG_ASSERT(nch <= 15);
+    DBG_ASSERT(nch <= BITS_PER_DIGIT);
+    DBG_ASSERT(nch-1 <= ib);
+    DBG_ASSERT(ib < BITS_PER_DIGIT*ndigs);
+    DBG_ASSERT(value < (1<<nch));
+    int id  = ib/BITS_PER_DIGIT;  // Digit position of most significant bit
+    int ibd = ib%BITS_PER_DIGIT;  // Bit position in digit
+    if(ibd >= nch-1) {
+	// The chunk is contained in one single digit
+	DBG_ASSERT(id >=0 && id < ndigs);
+	digits[id] ^= value << (ibd - (nch-1));
+    } else {
+	// The chunk is split between two digits
+	DBG_ASSERT(id >=1 && id < ndigs);
+	digits[id  ] ^= value >> ((nch-1) - ibd);
+	digits[id-1] ^= (value & ((1 << ((nch-1) - ibd)) - 1 )) << (BITS_PER_DIGIT - ((nch-1) - ibd));
+    }
+}
 
 static PyObject *
-pygf2x_div(PyObject *self, PyObject *args) {
-    // Divide two Python integers, interpreted as polynomials over GF(2)
-    // Return quotient and remainder
+pygf2x_div(PyObject *self, PyObject *args)
+// Divide two Python integers, interpreted as polynomials over GF(2)
+// Return quotient and remainder
+{
     (void)self;
 
     PyLongObject *numerator, *denominator;
@@ -339,6 +443,7 @@ pygf2x_div(PyObject *self, PyObject *args) {
     }
 
     int nbits_d = nbits(denominator);
+    int ndigs_d = (nbits_d+BITS_PER_DIGIT-1)/BITS_PER_DIGIT;
     int nbits_n = nbits(numerator);
     int ndigs_n = (nbits_n+BITS_PER_DIGIT-1)/BITS_PER_DIGIT;
 
@@ -359,37 +464,146 @@ pygf2x_div(PyObject *self, PyObject *args) {
     
     DBG_PRINTF("Bits per digit  : %-4d\n",BITS_PER_DIGIT);
     DBG_PRINTF("Numerator bits  : %-4d\n",nbits_n);
-    DBG_PRINTF("Denominator bits: %-4d\n",nbits_d);
+    DBG_PRINTF0("Denominator bits: %-4d\n",nbits_d);
     DBG_PRINTF("Quotient bits  ?: %-4d\n",nbits_q);
     DBG_PRINTF("Remainder bits ?: %-4d\n",nbits_r);
 
-    for(int nbi = nbits_n-1; nbi >= nbits_d-1; nbi--) {
-        int ndi = (nbi/BITS_PER_DIGIT);    // Digit position
-        int ndbi = nbi-ndi*BITS_PER_DIGIT; // Bit position in digit
-        if(r_digits[ndi] & (1<<ndbi)) {
-            // Numerator bit is set. Set quotient bit and subtract denominator
-	    int qbi  = nbi - nbits_d +1;
-	    int qdi  =  (qbi/BITS_PER_DIGIT);   // Digit position
-	    int qdbi = qbi-qdi*BITS_PER_DIGIT;  // Bit position in digit
-	    q_digits[qdi] |= (1<<qdbi);
-            for(int dbi  = nbits_d-1; dbi >= 0 ; dbi--) {
-                int ddi  = (dbi/BITS_PER_DIGIT);   // Digit position
-                int ddbi = dbi-ddi*BITS_PER_DIGIT; // Bit position in digit
-		int rbi  = nbi - (nbits_d-1 - dbi);
-		int rdi  = (rbi/BITS_PER_DIGIT);   // Digit position
-                int rdbi = rbi-rdi*BITS_PER_DIGIT; // Bit position in digit
-		r_digits[rdi] ^= ((denominator->ob_digit[ddi]>>ddbi)&1)<<rdbi;
+    DBG_PRINTF_DIGITS("Numerator digits  :",numerator->ob_digit,ndigs_n);
+    DBG_PRINTF_DIGITS("Denominator digits:",denominator->ob_digit,ndigs_d);
+    
+    if(nbits_d < LIMIT_DIV_BITWISE) {
+	DBG_PRINTF("Using bitwise div\n");
+        // Use bitwise Euclidean division (possibly efficient for very small denominators)
+	for(int nbi = nbits_n-1; nbi >= nbits_d-1; nbi--) {
+	    int ndi = (nbi/BITS_PER_DIGIT);    // Digit position
+	    int ndbi = nbi-ndi*BITS_PER_DIGIT; // Bit position in digit
+	    if(r_digits[ndi] & (1<<ndbi)) {
+		// Numerator bit is set. Set quotient bit and subtract denominator
+		int qbi  = nbi - nbits_d +1;
+		int qdi  =  (qbi/BITS_PER_DIGIT);   // Digit position
+		int qdbi = qbi-qdi*BITS_PER_DIGIT;  // Bit position in digit
+		q_digits[qdi] |= (1<<qdbi);
+		for(int dbi  = nbits_d-1; dbi >= 0 ; dbi--) {
+		    int ddi  = (dbi/BITS_PER_DIGIT);   // Digit position
+		    int ddbi = dbi-ddi*BITS_PER_DIGIT; // Bit position in digit
+		    int rbi  = nbi - (nbits_d-1 - dbi);
+		    int rdi  = (rbi/BITS_PER_DIGIT);   // Digit position
+		    int rdbi = rbi-rdi*BITS_PER_DIGIT; // Bit position in digit
+		    r_digits[rdi] ^= ((denominator->ob_digit[ddi]>>ddbi)&1)<<rdbi;
+		}
 	    }
-        }
+	}
+    } else {
+	DBG_PRINTF("Using table-based div, NDIV=%d\n",NDIV);
+        // Use Euclidean division based on tabled inverse of NDIV bit chunks
+	uint16_t invd;
+	// Extract dh = most significant "chunk" of denominator, and invert it
+	// bitsize is MIN(NDIV,nbits_d)
+	const int nbits_dh = GF2X_MIN(NDIV,nbits_d);
+	{
+	    // Extract the highest chunk of denominator
+	    int ib_d = nbits_d-1; // Highest bit position in highest digit of denominator
+	    DBG_PRINTF0("Extract dh\n");
+	    uint16_t dh = extract_chunk(denominator->ob_digit, ib_d, nbits_dh, ndigs_d);
+
+	    // Invert dh using tablulated inverse
+	    dh <<= (NDIV - nbits_dh);
+	    DBG_PRINTF("dh=%x,nbits_dh=%d\n",dh,nbits_dh);
+	    DBG_ASSERT(dh>=(1 << (NDIV-1)) && dh < (1 << NDIV));
+	    invd = inv_NDIV[dh - (1 << (NDIV-1))];
+	    DBG_ASSERT(invd < (1 << NDIV));
+	    invd >>= (NDIV - nbits_dh);
+	}
+	// invd now contains inverse of dh (nbits_dh bits)
+	DBG_PRINTF("invd=%x\n",invd);
+
+	// Update q and r, processing min(NDIV,nbits_d) bits in each step, except the last step which may be smaller to match nbits_d.
+	// Loop over bit-position in remainder.
+	int ib_n_;
+        for(int ib_n  = nbits_n - 1; ib_n >= nbits_d - 1; ib_n = ib_n_) {
+	    // Compute next remainder bit position, after the current iteration
+	    DBG_PRINTF(" ib_n=%d\n",ib_n);
+	    if (ib_n > nbits_dh + (nbits_d - 2))
+		ib_n_ = ib_n - nbits_dh;
+	    else
+		ib_n_ = nbits_d - 2;
+	    DBG_PRINTF(" ib_n_=%d\n",ib_n_);
+	    // ndiv is the number of remainder bits processed in this step.
+ 	    const int ndiv = ib_n - ib_n_;
+	    DBG_PRINTF(" ndiv=%d\n",ndiv);
+
+	    // Extract rh = the remainder chunk to be eliminated. Bitsize is ndiv.
+	    DBG_PRINTF0(" Extract rh\n");
+	    uint16_t rh = extract_chunk(r_digits, ib_n, ndiv, ndigs_r);
+	    DBG_PRINTF0(" rh=%x\n",rh);
+
+	    DBG_ASSERT(rh < (1<<10));
+	    DBG_ASSERT(invd < (1<<10));
+	    
+	    // Compute qh = the quotient chunk. Bitsize is ndiv.
+	    uint16_t qh;
+	    {
+		//  qh = (rh*inv(dh))>>(nbits_d-1)
+		uint32_t qh_tmp = 
+		    (( mul_5_5[rh >> 5  ][invd & 0x1f] ^
+		       mul_5_5[rh & 0x1f][invd >> 5  ]) << 5)
+		    ^( mul_5_5[rh & 0x1f][invd & 0x1f] )
+		    ^( mul_5_5[rh >> 5  ][invd >> 5  ] << 10);
+		// qh_tmp is now nbits_dh + ndiv - 1 bits
+		qh_tmp >>= (nbits_dh -1);
+		DBG_PRINTF0(" qh=%x,1<<ndiv=%x\n",qh_tmp,1<<ndiv);
+		// qh is now ndiv bits
+		DBG_ASSERT((int)qh_tmp < (1 << ndiv));
+		qh = qh_tmp;
+	    }
+	    DBG_PRINTF0(" qh=%x\n",qh);
+
+	    // Update q by inserting qh in the right position
+	    int ib_q  = ib_n - (nbits_d - 1);   // Bit position
+	    add_chunk(q_digits, ib_q, ndiv, qh, ndigs_q);
+	    
+	    // Update remainder r -= (qh*d) << (ib_n_ - (nbits_d - 1))
+	    // Loop over 5-bit chunks in denominator, starting from least significant end
+	    // (the last, most significant chunk of the denominator may be smaller than 5 bits)
+	    DBG_PRINTF0(" ib_n=%d,ib_n_=%d\n",ib_n,ib_n_);
+	    for( int ib_l_d = 0; ib_l_d < nbits_d; ib_l_d += 5 ) {
+		int ib_d = GF2X_MIN(ib_l_d + 4, nbits_d - 1);
+		int nbits_dc = ib_d - ib_l_d + 1;
+		DBG_PRINTF0("  ib_l_d=%d,ib_d=%d,nbits_dc=%d\n",ib_l_d,ib_d,nbits_dc);
+	        // Extract the denominator chunk
+		int id_l_d  = ib_l_d/BITS_PER_DIGIT;
+		int ibd_l_d = ib_l_d%BITS_PER_DIGIT;
+		DBG_ASSERT(id_l_d < ndigs_d);
+	        uint16_t dc = (denominator->ob_digit[id_l_d] >> ibd_l_d) & 0x1f;
+		DBG_PRINTF0("  dc=%x,nbits_dc=%d\n",dc,nbits_dc);
+		DBG_PRINTF0("  qh=%x,ndiv=%d\n",qh,ndiv);
+
+		// Multiply qh with denominator chunk
+		// The result qhdc is at most ndiv+nbits_dc-1 bits
+		DBG_ASSERT(dc<(1<<nbits_dc));
+		DBG_ASSERT(qh<(1<<ndiv));
+	        uint16_t qhdc = (mul_5_5[dc][qh>>5] << 5) ^ mul_5_5[dc][qh&0x1f];
+		int nbits_qhdc = ndiv + nbits_dc -1;
+		DBG_PRINTF0("  qhdc=%x,nbits_qhdc=%d\n",qhdc,nbits_qhdc);
+		DBG_ASSERT(qhdc < (1 << nbits_qhdc));
+
+		// Shift qhdc to the appropriate position and add to the remainder
+		int ib_r = ib_n - ((nbits_d-1) - ib_l_d) + (nbits_dc-1);
+		DBG_PRINTF0("  ib_n=%d,ib_r=%d\n",ib_n,ib_r);
+		add_chunk(r_digits, ib_r, nbits_qhdc, qhdc, ndigs_r);
+		DBG_PRINTF_DIGITS("  ri= ",r_digits,ndigs_r);
+	    }
+#ifdef DEBUG_PYGF2X
+	    DBG_PRINTF_DIGITS(" r = ",r_digits,ndigs_r);
+	    DBG_ASSERT(extract_chunk(r_digits, ib_n, ndiv, ndigs_r) == 0);
+#endif
+	}
     }
 
     // Remove leading zero digits
     while(ndigs_q > 0 && q_digits[ndigs_q-1] == 0)
       ndigs_q -= 1;
-    DBG_PRINTF("q digits:");
-    for(int i=0; i<ndigs_q; i++)
-      DBG_PRINTF(",%08x", q_digits[i]);
-    DBG_PRINTF("\n");
+    DBG_PRINTF_DIGITS("q digits:",q_digits,ndigs_q);
     
     PyLongObject *q = _PyLong_New(ndigs_q);
     for(int i=0; i<ndigs_q; i++)
@@ -398,10 +612,7 @@ pygf2x_div(PyObject *self, PyObject *args) {
     // Remove leading zero digits
     while(ndigs_r > 0 && r_digits[ndigs_r-1] == 0)
       ndigs_r -= 1;
-    DBG_PRINTF("r digits:");
-    for(int i=0; i<ndigs_r; i++)
-      DBG_PRINTF(",%08x", r_digits[i]);
-    DBG_PRINTF("\n");
+    DBG_PRINTF_DIGITS("r digits:",r_digits,ndigs_r);
     
     PyLongObject *r = _PyLong_New(ndigs_r);
     for(int i=0; i<ndigs_r; i++)
