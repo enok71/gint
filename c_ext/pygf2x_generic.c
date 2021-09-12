@@ -504,7 +504,6 @@ pygf2x_div(PyObject *self, PyObject *args)
     DBG_PRINTF_DIGITS("Denominator      :",denominator->ob_digit,ndigs_d);
     
     if(nbits_d < LIMIT_DIV_BITWISE) {
-	DBG_PRINTF("Using bitwise div\n");
         // Use bitwise Euclidean division for small denominators because it is possibly more efficient
 	for(int ib_r = nbits_n-1; ib_r >= nbits_d-1; ib_r--) {
 	    int id_r = (ib_r/BITS_PER_DIGIT);    // Digit position
@@ -526,7 +525,6 @@ pygf2x_div(PyObject *self, PyObject *args)
 	    }
 	}
     } else {
-	DBG_PRINTF("Using table-based div, NDIV=%d\n",NDIV);
         // Use Euclidean division based on tabled inverse of NDIV bit chunks
 	uint16_t inv_dh;
 	// Extract dh = most significant "chunk" of denominator, and invert it.
@@ -535,19 +533,16 @@ pygf2x_div(PyObject *self, PyObject *args)
 	{
 	    // Extract the highest chunk of denominator
 	    int ib_d = nbits_d-1; // Highest bit position in highest digit of denominator
-	    DBG_PRINTF("Extract dh\n");
 	    uint16_t dh = extract_chunk(denominator->ob_digit, ib_d, nbits_dh, ndigs_d);
 
 	    // Invert dh using tablulated inverse
 	    dh <<= (NDIV - nbits_dh);
-	    DBG_PRINTF("dh=%x,nbits_dh=%d\n",dh,nbits_dh);
 	    DBG_ASSERT(dh>=(1 << (NDIV-1)) && dh < (1 << NDIV));
 	    inv_dh = inv_NDIV[dh - (1 << (NDIV-1))];
 	    DBG_ASSERT(inv_dh < (1 << NDIV));
 	    inv_dh >>= (NDIV - nbits_dh);
 	}
 	// inv_dh now contains inverse of dh (nbits_dh bits)
-	DBG_PRINTF("inv_dh=%x\n",inv_dh);
 
 	// Update q and r, processing ndiv bits in each step.
 	// ndiv = nbits_dh = min(NDIV,nbits_d), except in the last step where ndiv is smaller to match nbits_d
@@ -561,13 +556,9 @@ pygf2x_div(PyObject *self, PyObject *args)
 		ib_r_ = nbits_d - 2;
 	    // ndiv is the number of remainder bits processed in this step.
  	    const int ndiv = ib_r - ib_r_;
-	    DBG_PRINTF(" ib_r=%d,ib_r_=%d,ndiv=%d\n",ib_r,ib_r_,ndiv);
 
 	    // Extract rh = the remainder chunk to be eliminated. Bitsize is ndiv.
-	    DBG_PRINTF(" Extract rh\n");
 	    uint16_t rh = extract_chunk(r_digits, ib_r, ndiv, ndigs_r);
-	    DBG_PRINTF(" rh=%x\n",rh);
-
 	    DBG_ASSERT(rh < (1<<10));
 	    DBG_ASSERT(inv_dh < (1<<10));
 	    
@@ -586,7 +577,6 @@ pygf2x_div(PyObject *self, PyObject *args)
 		DBG_ASSERT((int)qh_tmp < (1 << ndiv));
 		qh = qh_tmp;
 	    }
-	    DBG_PRINTF(" qh=%x\n",qh);
 
 	    // Update q by inserting qh in the right position
 	    int ib_q  = ib_r - (nbits_d - 1);   // Bit position
@@ -595,19 +585,15 @@ pygf2x_div(PyObject *self, PyObject *args)
 	    // Update remainder r -= (qh*d) << (ib_r_ - (nbits_d - 1))
 	    // Loop over 5-bit chunks in denominator, starting from least significant end
 	    // (the last, most significant chunk of the denominator may be smaller than 5 bits)
-	    DBG_PRINTF(" ib_r=%d,ib_r_=%d\n",ib_r,ib_r_);
 	    for(int jb_d = 0; jb_d < nbits_d; jb_d += 5 ) {
 		// Note: jb_d is the least significant bit position of the denominator chunk processed in this step
 		int ib_d = GF2X_MIN(jb_d + 4, nbits_d - 1);
 		int nbits_dc = ib_d - jb_d + 1;
-		DBG_PRINTF("  jb_d=%d,ib_d=%d,nbits_dc=%d\n",jb_d,ib_d,nbits_dc);
 	        // Extract the denominator chunk
 		int jd_d  = jb_d/BITS_PER_DIGIT;
 		int jbd_d = jb_d%BITS_PER_DIGIT;
 		DBG_ASSERT(jd_d < ndigs_d);
 	        uint16_t dc = (denominator->ob_digit[jd_d] >> jbd_d) & 0x1f;
-		DBG_PRINTF("  dc=%x,nbits_dc=%d\n",dc,nbits_dc);
-		DBG_PRINTF("  qh=%x,ndiv=%d\n",qh,ndiv);
 
 		// Multiply qh with denominator chunk
 		// The result qhdc is at most ndiv+nbits_dc-1 bits
@@ -615,17 +601,13 @@ pygf2x_div(PyObject *self, PyObject *args)
 		DBG_ASSERT(qh<(1<<ndiv));
 	        uint16_t qhdc = (mul_5_5[dc][qh>>5] << 5) ^ mul_5_5[dc][qh&0x1f];
 		int nbits_qhdc = ndiv + nbits_dc -1;
-		DBG_PRINTF("  qhdc=%x,nbits_qhdc=%d\n",qhdc,nbits_qhdc);
 		DBG_ASSERT(qhdc < (1 << nbits_qhdc));
 
 		// Add qhdc to the remainder at the appropriate position
 		int ib_qhdc = ib_r - ((nbits_d-1) - jb_d) + (nbits_dc-1);
-		DBG_PRINTF("  ib_r=%d,ib_qhdc=%d\n",ib_r,ib_qhdc);
 		add_chunk(r_digits, ib_qhdc, nbits_qhdc, qhdc, ndigs_r);
-		DBG_PRINTF_DIGITS("  ri= ",r_digits,ndigs_r);
 	    }
 #ifdef DEBUG_PYGF2X
-	    DBG_PRINTF_DIGITS(" r = ",r_digits,ndigs_r);
 	    DBG_ASSERT(extract_chunk(r_digits, ib_r, ndiv, ndigs_r) == 0);
 #endif
 	}
