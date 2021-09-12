@@ -182,11 +182,12 @@ static inline int nbits(PyLongObject *integer) {
 }
 
 /*
-// This function is dead code, for now
 static uint32_t
-mul_15_15(uint16_t l, uint16_t r) {
-    // Multiply two unsigned 15-bit integers (stored in uint16_t)
-    uint8_t l0 = l&0x1f;
+mul_15_15(uint16_t l, uint16_t r)
+// Multiply two unsigned 15-bit polynomials over GF(2) (stored in uint16_t)
+// Return as a 29-bit polynomial (stored in uint32_t)
+{
+    uint8_t l0 = l & 0x1f;
     l>>=5;
     uint8_t l1 = l&0x1f;
     l>>=5;
@@ -212,10 +213,11 @@ mul_15_15(uint16_t l, uint16_t r) {
 */
 
 /*
-// This function is dead code, for now
 static uint64_t
-mul_30_30(uint32_t l, uint32_t r) {
-    // Multiply two 30-bit unsigned integers (stored in uint32_t)
+mul_30_30(uint32_t l, uint32_t r) 
+// Multiply two unsigned 30-bit polynomials over GF(2) (stored in uint32_t)
+// Return as a 59-bit polynomial (stored in uint64_t)
+{
     uint16_t l0 = l&0x3ff;
     l>>=10;
     uint16_t l1 = l&0x3ff;
@@ -255,41 +257,37 @@ pygf2x_sqr(PyObject *self, PyObject *args) {
     }
 
     int nbits_f = nbits(f);
+    int nbits_p = 2*nbits_f -1;
 
-    int n15_f = (nbits_f+14)/15;
-    int n15_p = n15_f*2;
+    int n15_f = (nbits_f + 14)/15;
 
-    int ndigs_p = (n15_p+N15_PER_DIGIT-1)/N15_PER_DIGIT;
-    digit result[ndigs_p];
+    int ndigs_p = (nbits_p + (BITS_PER_DIGIT-1))/BITS_PER_DIGIT;
+    PyLongObject *p = _PyLong_New(ndigs_p);
+    digit *restrict result = p->ob_digit;
     memset(result,0,ndigs_p*sizeof(digit));
     
     DBG_PRINTF("Bits per digit   = %-4d\n",BITS_PER_DIGIT);
     DBG_PRINTF("factor bits      = %-4d\n",nbits_f);
-    DBG_PRINTF("Product digits  <= %-4d\n",ndigs_p);
+    DBG_PRINTF("Square digits    = %-4d\n",ndigs_p);
 
-    for(int i=0; i<n15_f; i++) {
+    for(int i15_f=0; i15_f<n15_f; i15_f++) {
         uint16_t ph = 0, pl = 0;
-	int id = i/N15_PER_DIGIT;
-	uint16_t f15 = (f->ob_digit[id]>>(15*(i%N15_PER_DIGIT)))&0x7fff;
-	pl = sqr_8[f15 & 0xff];
-	ph = (sqr_8[(f15>>8) & 0x7f]<<1) | (pl>>15);
-	pl &= 0x7fff;
-	result[(2*i  )/N15_PER_DIGIT] ^= ((digit)pl<<(15*((2*i  )%N15_PER_DIGIT)));
-	result[(2*i+1)/N15_PER_DIGIT] ^= ((digit)ph<<(15*((2*i+1)%N15_PER_DIGIT)));
+	int id_f   = i15_f/N15_PER_DIGIT;
+	int i15d_f = i15_f%N15_PER_DIGIT;
+	uint16_t f15 = (f->ob_digit[id_f] >> (15*i15d_f)) & 0x7fff;
+	pl = sqr_8[f15 & 0xff];               // The least significant 15 bits
+	ph = sqr_8[(f15 >> 8) & 0x7f] << 1;   // The most significant 14 bits
+
+	int i15_p  = 2*i15_f;
+	int i15_p_ = i15_p+1;
+	result[(i15_p )/N15_PER_DIGIT] ^= ((digit)pl<<(15*((i15_p )%N15_PER_DIGIT)));
+	if(ph)
+	    result[(i15_p_)/N15_PER_DIGIT] ^= ((digit)ph<<(15*((i15_p_)%N15_PER_DIGIT)));
     }
 
-    // Remove zero digits
-    while(ndigs_p > 0 && result[ndigs_p-1]==0)
-        ndigs_p -= 1;
-    DBG_PRINTF("Product digits   = %-4d\n",ndigs_p);
+    DBG_PRINTF_DIGITS("Square:",result,ndigs_p);
 
-    DBG_PRINTF_DIGITS("digits:",result,ndigs_p);
-
-    PyLongObject *p = _PyLong_New(ndigs_p);
-    for(int id=0; id<ndigs_p; id++)
-        p->ob_digit[id] = result[id];
-      
-    return Py_BuildValue("O",p);
+    return (PyObject *)p;
 }
 
 
@@ -317,56 +315,52 @@ pygf2x_mul(PyObject *self, PyObject *args) {
 
     int nbits_l = nbits(fl);
     int nbits_r = nbits(fr);
+    int nbits_p = nbits_l + nbits_r -1;
 
     int n5_l = (nbits_l+4)/5;
     int n5_r = (nbits_r+4)/5;
-    int n5_p = n5_l+n5_r;
+    int n5_p = n5_l + n5_r -1;
 
-    int ndigs_p = (n5_p+N5_PER_DIGIT-1)/N5_PER_DIGIT;
-    digit result[ndigs_p];
+    int ndigs_p = (nbits_p + (BITS_PER_DIGIT-1))/BITS_PER_DIGIT;
+    PyLongObject *p = _PyLong_New(ndigs_p);
+    digit *result = p->ob_digit;
     memset(result,0,ndigs_p*sizeof(digit));
     
     DBG_PRINTF("Bits per digit   = %-4d\n",BITS_PER_DIGIT);
     DBG_PRINTF("Left factor bits = %-4d\n",nbits_l);
     DBG_PRINTF("Right factor bits= %-4d\n",nbits_r);
-    DBG_PRINTF("Product digits  <= %-4d\n",ndigs_p);
-
-    for(int i=0; i<n5_p; i++) {
-        uint16_t p5 = 0;
-	int je = i;
-	if(je > n5_l)
-           je = n5_l;
-	int jb = 0;
-	if(i > n5_r)
-            jb = i-n5_r;
-        for(int jl=jb; jl<=je; jl++) {
-            int jr = i-jl;
-	    int jdl = jl/N5_PER_DIGIT;
-	    int jdr = jr/N5_PER_DIGIT;
-	    uint8_t d5_l = ((fl->ob_digit[jdl])>>(5*(jl%N5_PER_DIGIT)))&0x1f;
-	    uint8_t d5_r = ((fr->ob_digit[jdr])>>(5*(jr%N5_PER_DIGIT)))&0x1f;
-	    uint16_t pi = mul_5_5[d5_l][d5_r];
-	    p5 ^= pi;
-	}
-	uint8_t p5l = p5&0x1f;
-	uint8_t p5h = p5>>5;
-
-	result[i/N5_PER_DIGIT] ^= p5l<<(5*(i%N5_PER_DIGIT));
-	result[(i+1)/N5_PER_DIGIT] ^= p5h<<(5*((i+1)%N5_PER_DIGIT));
-    }
-
-    // Remove zero digits
-    while(ndigs_p > 0 && result[ndigs_p-1]==0)
-        ndigs_p -= 1;
     DBG_PRINTF("Product digits   = %-4d\n",ndigs_p);
 
-    DBG_PRINTF_DIGITS("digits:",result,ndigs_p);
+    // Outermost loop is over all 5-bit chunks in the product 
+    for(int i5_p=0; i5_p<n5_p; i5_p++) {
+        uint16_t pc = 0;        // Product chunk (9-bits)
+	int i5end_l = i5_p;
+	if(i5end_l > n5_l)
+           i5end_l = n5_l;
+	int i5beg_l = 0;
+	if(i5_p > n5_r)
+            i5beg_l = i5_p - n5_r;
+        for(int i5_l = i5beg_l; i5_l <= i5end_l; i5_l++) {
+            int i5_r = i5_p - i5_l;
+	    int id_l = i5_l/N5_PER_DIGIT;
+	    int i5d_l= i5_l%N5_PER_DIGIT;
+	    int id_r = i5_r/N5_PER_DIGIT;
+	    int i5d_r= i5_r%N5_PER_DIGIT;
+	    uint8_t dc_l = ((fl->ob_digit[id_l]) >> (5*i5d_l))&0x1f;
+	    uint8_t dc_r = ((fr->ob_digit[id_r]) >> (5*i5d_r))&0x1f;
+	    pc ^= mul_5_5[dc_l][dc_r];
+	}
+	uint8_t pcl = pc&0x1f;
+	uint8_t pch = pc>>5;
 
-    PyLongObject *p = _PyLong_New(ndigs_p);
-    for(int id=0; id<ndigs_p; id++)
-        p->ob_digit[id] = result[id];
-      
-    return Py_BuildValue("O",p);
+	result[ i5_p   /N5_PER_DIGIT] ^= pcl << (5*( i5_p   %N5_PER_DIGIT));
+	if(pch)
+	    result[(i5_p+1)/N5_PER_DIGIT] ^= pch << (5*((i5_p+1)%N5_PER_DIGIT));
+    }
+
+    DBG_PRINTF_DIGITS("Product          :",result,ndigs_p);
+
+    return (PyObject *)p;
 }
 
 static inline uint16_t extract_chunk(const digit *digits, int ib, int nch, const int ndigs)
@@ -441,33 +435,36 @@ pygf2x_div(PyObject *self, PyObject *args)
     }
 
     int nbits_d = nbits(denominator);
-    int ndigs_d = (nbits_d+BITS_PER_DIGIT-1)/BITS_PER_DIGIT;
-    int nbits_n = nbits(numerator);
-    int ndigs_n = (nbits_n+BITS_PER_DIGIT-1)/BITS_PER_DIGIT;
-
+    int ndigs_d = (nbits_d + (BITS_PER_DIGIT-1))/BITS_PER_DIGIT;
     if(nbits_d == 0) {
         PyErr_SetString(PyExc_ZeroDivisionError, "Denominator is zero");
         return NULL;
     }
-    int nbits_q = nbits_n-nbits_d+1 > 0 ? nbits_n-nbits_d+1 : 0;
+    int nbits_n = nbits(numerator);
+    int ndigs_n = (nbits_n + (BITS_PER_DIGIT-1))/BITS_PER_DIGIT;
+    
+    int nbits_q = nbits_n > nbits_d-1 ? nbits_n - (nbits_d-1) : 0;
     int nbits_r = nbits_n > nbits_d-1 ? nbits_n : nbits_d-1;
-    int ndigs_q = (nbits_q+BITS_PER_DIGIT-1)/BITS_PER_DIGIT;
-    int ndigs_r = (nbits_r+BITS_PER_DIGIT-1)/BITS_PER_DIGIT;
+    int ndigs_q = (nbits_q + (BITS_PER_DIGIT-1))/BITS_PER_DIGIT;
+    int ndigs_r = (nbits_r + (BITS_PER_DIGIT-1))/BITS_PER_DIGIT;
 
-    digit q_digits[ndigs_q];
+    
+    PyLongObject *q = _PyLong_New(ndigs_q);
+    digit *restrict q_digits = q->ob_digit;
     memset(q_digits,0,ndigs_q*sizeof(digit));
+    
     digit r_digits[ndigs_r]; // Initialize to numerator
     memset(r_digits+ndigs_n,0,(ndigs_r-ndigs_n)*sizeof(digit));
     memcpy(r_digits, numerator->ob_digit, ndigs_n*sizeof(digit));
     
-    DBG_PRINTF("Bits per digit  : %-4d\n",BITS_PER_DIGIT);
-    DBG_PRINTF("Numerator bits  : %-4d\n",nbits_n);
-    DBG_PRINTF("Denominator bits: %-4d\n",nbits_d);
-    DBG_PRINTF("Quotient bits  ?: %-4d\n",nbits_q);
-    DBG_PRINTF("Remainder bits ?: %-4d\n",nbits_r);
+    DBG_PRINTF("Bits per digit   = %-4d\n",BITS_PER_DIGIT);
+    DBG_PRINTF("Numerator bits   = %-4d\n",nbits_n);
+    DBG_PRINTF("Denominator bits = %-4d\n",nbits_d);
+    DBG_PRINTF("Quotient bits    = %-4d\n",nbits_q);
+    DBG_PRINTF("Remainder bits  <= %-4d\n",nbits_r);
 
-    DBG_PRINTF_DIGITS("Numerator digits  :",numerator->ob_digit,ndigs_n);
-    DBG_PRINTF_DIGITS("Denominator digits:",denominator->ob_digit,ndigs_d);
+    DBG_PRINTF_DIGITS("Numerator        :",numerator->ob_digit,ndigs_n);
+    DBG_PRINTF_DIGITS("Denominator      :",denominator->ob_digit,ndigs_d);
     
     if(nbits_d < LIMIT_DIV_BITWISE) {
 	DBG_PRINTF("Using bitwise div\n");
@@ -597,19 +594,12 @@ pygf2x_div(PyObject *self, PyObject *args)
 	}
     }
 
-    // Remove leading zero digits
-    while(ndigs_q > 0 && q_digits[ndigs_q-1] == 0)
-      ndigs_q -= 1;
-    DBG_PRINTF_DIGITS("q digits:",q_digits,ndigs_q);
-    
-    PyLongObject *q = _PyLong_New(ndigs_q);
-    for(int i=0; i<ndigs_q; i++)
-        q->ob_digit[i] = q_digits[i];
+    DBG_PRINTF_DIGITS("Quotient         :",q_digits,ndigs_q);
 
-    // Remove leading zero digits
+    // Remove leading zero digits from remainder
     while(ndigs_r > 0 && r_digits[ndigs_r-1] == 0)
       ndigs_r -= 1;
-    DBG_PRINTF_DIGITS("r digits:",r_digits,ndigs_r);
+    DBG_PRINTF_DIGITS("Remainder        :",r_digits,ndigs_r);
     
     PyLongObject *r = _PyLong_New(ndigs_r);
     for(int i=0; i<ndigs_r; i++)
