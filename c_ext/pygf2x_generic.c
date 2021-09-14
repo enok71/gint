@@ -38,14 +38,14 @@ static void my_abort() {
 #define DBG_ASSERT(x)
 #endif
 
-static const int BITS_PER_DIGIT = sizeof(digit)*8*15/16;
+#define BITS_PER_DIGIT PyLong_SHIFT
 static const int N5_PER_DIGIT = sizeof(digit)*8*3/16;
 static const int N15_PER_DIGIT = sizeof(digit)*8/16;
 #define GF2X_MAX(a,b) ((a>b) ? (a) : (b))
 #define GF2X_MIN(a,b) ((a<b) ? (a) : (b))
 
 static const int LIMIT_DIV_BITWISE = 5;
-#define USE_KARATSUBA_15_15
+//#define USE_KARATSUBA_15_15
 #define NDIV 10
 #define inv_NDIV inv_10
 
@@ -353,14 +353,15 @@ pygf2x_mul(PyObject *self, PyObject *args) {
     int nbits_l = nbits(fl);
     int nbits_r = nbits(fr);
     int nbits_p = nbits_l + nbits_r -1;
+    int ndigs_l = (nbits_l + (BITS_PER_DIGIT-1))/BITS_PER_DIGIT;
+    int ndigs_r = (nbits_r + (BITS_PER_DIGIT-1))/BITS_PER_DIGIT;
+    int ndigs_p = (nbits_p + (BITS_PER_DIGIT-1))/BITS_PER_DIGIT;
 
     int n5_l = (nbits_l+4)/5;
     int n5_r = (nbits_r+4)/5;
     int n5_p = n5_l + n5_r -1;
 
-    int ndigs_p = (nbits_p + (BITS_PER_DIGIT-1))/BITS_PER_DIGIT;
-    PyLongObject *p = _PyLong_New(ndigs_p);
-    digit *result = p->ob_digit;
+    digit result[ndigs_l + ndigs_r -1];
     memset(result,0,ndigs_p*sizeof(digit));
     
     DBG_PRINTF("Bits per digit   = %-4d\n",BITS_PER_DIGIT);
@@ -368,34 +369,30 @@ pygf2x_mul(PyObject *self, PyObject *args) {
     DBG_PRINTF("Right factor bits= %-4d\n",nbits_r);
     DBG_PRINTF("Product digits   = %-4d\n",ndigs_p);
 
-    // Outermost loop is over all 5-bit chunks in the product 
-    for(int i5_p=0; i5_p<n5_p; i5_p++) {
-        uint16_t pc = 0;        // Product chunk (9-bits)
-	int i5end_l = i5_p;
-	if(i5end_l > n5_l)
-           i5end_l = n5_l;
-	int i5beg_l = 0;
-	if(i5_p > n5_r)
-            i5beg_l = i5_p - n5_r;
-        for(int i5_l = i5beg_l; i5_l <= i5end_l; i5_l++) {
-            int i5_r = i5_p - i5_l;
-	    int id_l = i5_l/N5_PER_DIGIT;
-	    int i5d_l= i5_l%N5_PER_DIGIT;
-	    int id_r = i5_r/N5_PER_DIGIT;
-	    int i5d_r= i5_r%N5_PER_DIGIT;
-	    uint8_t dc_l = ((fl->ob_digit[id_l]) >> (5*i5d_l))&0x1f;
-	    uint8_t dc_r = ((fr->ob_digit[id_r]) >> (5*i5d_r))&0x1f;
-	    pc ^= mul_5_5[dc_l][dc_r];
-	}
-	uint8_t pcl = pc&0x1f;
-	uint8_t pch = pc>>5;
+    const digit *restrict const digits_l = fl->ob_digit;
+    const digit *restrict const digits_r = fr->ob_digit;
 
-	result[ i5_p   /N5_PER_DIGIT] ^= pcl << (5*( i5_p   %N5_PER_DIGIT));
-	if(pch)
-	    result[(i5_p+1)/N5_PER_DIGIT] ^= pch << (5*((i5_p+1)%N5_PER_DIGIT));
+    for(int id_l=0; id_l<ndigs_l; id_l++) {
+	for(int id_r=0; id_r<ndigs_r; id_r++) {
+	    digit ld = digits_l[id_l];
+	    digit rd = digits_r[id_r];
+#if (BITS_PER_DIGIT == 15)
+	    twodigits pc = mul_15_15(ld,rd);
+#elif (BITS_PER_DIGIT == 30)		
+	    twodigits pc = mul_30_30(ld,rd);
+#else
+#error
+#endif
+	    result[id_l+id_r  ] ^= (digit)pc & PyLong_MASK;
+	    result[id_l+id_r+1] ^= pc >> (digit)BITS_PER_DIGIT;
+	}
     }
 
     DBG_PRINTF_DIGITS("Product          :",result,ndigs_p);
+
+    PyLongObject *p = _PyLong_New(ndigs_p);
+    for(int n=0; n<ndigs_p; n++)
+	p->ob_digit[n] = result[n];
 
     return (PyObject *)p;
 }
