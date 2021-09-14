@@ -38,9 +38,8 @@ static void my_abort() {
 #define DBG_ASSERT(x)
 #endif
 
-#define BITS_PER_DIGIT PyLong_SHIFT
-static const int N5_PER_DIGIT = sizeof(digit)*8*3/16;
-static const int N15_PER_DIGIT = sizeof(digit)*8/16;
+#define N5_PER_DIGIT  (PyLong_SHIFT / 5)
+#define N15_PER_DIGIT (PyLong_SHIFT / 15)
 #define GF2X_MAX(a,b) ((a>b) ? (a) : (b))
 #define GF2X_MIN(a,b) ((a<b) ? (a) : (b))
 
@@ -298,12 +297,12 @@ pygf2x_sqr(PyObject *self, PyObject *args) {
 
     int n15_f = (nbits_f + 14)/15;
 
-    int ndigs_p = (nbits_p + (BITS_PER_DIGIT-1))/BITS_PER_DIGIT;
+    int ndigs_p = (nbits_p + (PyLong_SHIFT-1))/PyLong_SHIFT;
     PyLongObject *p = _PyLong_New(ndigs_p);
     digit *restrict result = p->ob_digit;
     memset(result,0,ndigs_p*sizeof(digit));
     
-    DBG_PRINTF("Bits per digit   = %-4d\n",BITS_PER_DIGIT);
+    DBG_PRINTF("Bits per digit   = %-4d\n",PyLong_SHIFT);
     DBG_PRINTF("factor bits      = %-4d\n",nbits_f);
     DBG_PRINTF("Square digits    = %-4d\n",ndigs_p);
 
@@ -353,9 +352,9 @@ pygf2x_mul(PyObject *self, PyObject *args) {
     int nbits_l = nbits(fl);
     int nbits_r = nbits(fr);
     int nbits_p = nbits_l + nbits_r -1;
-    int ndigs_l = (nbits_l + (BITS_PER_DIGIT-1))/BITS_PER_DIGIT;
-    int ndigs_r = (nbits_r + (BITS_PER_DIGIT-1))/BITS_PER_DIGIT;
-    int ndigs_p = (nbits_p + (BITS_PER_DIGIT-1))/BITS_PER_DIGIT;
+    int ndigs_l = (nbits_l + (PyLong_SHIFT-1))/PyLong_SHIFT;
+    int ndigs_r = (nbits_r + (PyLong_SHIFT-1))/PyLong_SHIFT;
+    int ndigs_p = (nbits_p + (PyLong_SHIFT-1))/PyLong_SHIFT;
 
     int n5_l = (nbits_l+4)/5;
     int n5_r = (nbits_r+4)/5;
@@ -364,7 +363,7 @@ pygf2x_mul(PyObject *self, PyObject *args) {
     digit result[ndigs_l + ndigs_r -1];
     memset(result,0,ndigs_p*sizeof(digit));
     
-    DBG_PRINTF("Bits per digit   = %-4d\n",BITS_PER_DIGIT);
+    DBG_PRINTF("Bits per digit   = %-4d\n",PyLong_SHIFT);
     DBG_PRINTF("Left factor bits = %-4d\n",nbits_l);
     DBG_PRINTF("Right factor bits= %-4d\n",nbits_r);
     DBG_PRINTF("Product digits   = %-4d\n",ndigs_p);
@@ -376,18 +375,18 @@ pygf2x_mul(PyObject *self, PyObject *args) {
 	for(int id_r=0; id_r<ndigs_r; id_r++) {
 	    digit ld = digits_l[id_l];
 	    digit rd = digits_r[id_r];
-#if (BITS_PER_DIGIT == 15)
+#if (PyLong_SHIFT == 15)
 	    twodigits pc = mul_15_15(ld,rd);
-#elif (BITS_PER_DIGIT == 30)		
+#elif (PyLong_SHIFT == 30)		
 	    twodigits pc = mul_30_30(ld,rd);
 #else
 #error
 #endif
 	    result[id_l+id_r  ] ^= (digit)pc & PyLong_MASK;
-	    result[id_l+id_r+1] ^= pc >> (digit)BITS_PER_DIGIT;
+	    result[id_l+id_r+1] ^= pc >> (digit)PyLong_SHIFT;
 	}
     }
-
+    
     DBG_PRINTF_DIGITS("Product          :",result,ndigs_p);
 
     PyLongObject *p = _PyLong_New(ndigs_p);
@@ -399,14 +398,14 @@ pygf2x_mul(PyObject *self, PyObject *args) {
 
 static inline uint16_t extract_chunk(const digit *digits, int ib, int nch, const int ndigs)
 // return nch-bit chunk of data extracted from digits, at msbit position ib.
-// Max value for nch is 15 because BITS_PER_DIGIT can be 15
+// Max value for nch is 15 because PyLong_SHIFT can be 15
 {
     DBG_ASSERT(nch <= 15);
-    DBG_ASSERT(nch <= BITS_PER_DIGIT);
+    DBG_ASSERT(nch <= PyLong_SHIFT);
     DBG_ASSERT(nch-1 <= ib);
-    DBG_ASSERT(ib < BITS_PER_DIGIT*ndigs);
-    int id  = ib/BITS_PER_DIGIT;  // Digit position of most significant bit
-    int ibd = ib%BITS_PER_DIGIT;  // Bit position in digit
+    DBG_ASSERT(ib < PyLong_SHIFT*ndigs);
+    int id  = ib/PyLong_SHIFT;  // Digit position of most significant bit
+    int ibd = ib%PyLong_SHIFT;  // Bit position in digit
     uint16_t ch;
     if(ibd >= nch-1) {
 	// The chunk is contained in one single digit
@@ -416,22 +415,22 @@ static inline uint16_t extract_chunk(const digit *digits, int ib, int nch, const
 	// The chunk is split between two digits
 	DBG_ASSERT(id >=1 && id < ndigs);
 	ch = (digits[id  ] << ((nch-1) - ibd))
-	    |(digits[id-1] >> (BITS_PER_DIGIT - ((nch-1) - ibd)));
+	    |(digits[id-1] >> (PyLong_SHIFT - ((nch-1) - ibd)));
     }
     return ch;
 }
 
 static inline void add_chunk(digit *digits, int ib, int nch, uint16_t value, const int ndigs)
 // Add (xor) nch-bit chunk of data to digits, at msbit position ib.
-// Max value for nch is 15 because BITS_PER_DIGIT can be 15
+// Max value for nch is 15 because PyLong_SHIFT can be 15
 {
     DBG_ASSERT(nch <= 15);
-    DBG_ASSERT(nch <= BITS_PER_DIGIT);
+    DBG_ASSERT(nch <= PyLong_SHIFT);
     DBG_ASSERT(nch-1 <= ib);
-    DBG_ASSERT(ib < BITS_PER_DIGIT*ndigs);
+    DBG_ASSERT(ib < PyLong_SHIFT*ndigs);
     DBG_ASSERT(value < (1<<nch));
-    int id  = ib/BITS_PER_DIGIT;  // Digit position of most significant bit
-    int ibd = ib%BITS_PER_DIGIT;  // Bit position in digit
+    int id  = ib/PyLong_SHIFT;  // Digit position of most significant bit
+    int ibd = ib%PyLong_SHIFT;  // Bit position in digit
     if(ibd >= nch-1) {
 	// The chunk is contained in one single digit
 	DBG_ASSERT(id >=0 && id < ndigs);
@@ -440,7 +439,7 @@ static inline void add_chunk(digit *digits, int ib, int nch, uint16_t value, con
 	// The chunk is split between two digits
 	DBG_ASSERT(id >=1 && id < ndigs);
 	digits[id  ] ^= value >> ((nch-1) - ibd);
-	digits[id-1] ^= (value & ((1 << ((nch-1) - ibd)) - 1 )) << (BITS_PER_DIGIT - ((nch-1) - ibd));
+	digits[id-1] ^= (value & ((1 << ((nch-1) - ibd)) - 1 )) << (PyLong_SHIFT - ((nch-1) - ibd));
     }
 }
 
@@ -469,18 +468,18 @@ pygf2x_div(PyObject *self, PyObject *args)
     }
 
     int nbits_d = nbits(denominator);
-    int ndigs_d = (nbits_d + (BITS_PER_DIGIT-1))/BITS_PER_DIGIT;
+    int ndigs_d = (nbits_d + (PyLong_SHIFT-1))/PyLong_SHIFT;
     if(nbits_d == 0) {
         PyErr_SetString(PyExc_ZeroDivisionError, "Denominator is zero");
         return NULL;
     }
     int nbits_n = nbits(numerator);
-    int ndigs_n = (nbits_n + (BITS_PER_DIGIT-1))/BITS_PER_DIGIT;
+    int ndigs_n = (nbits_n + (PyLong_SHIFT-1))/PyLong_SHIFT;
     
     int nbits_q = nbits_n > nbits_d-1 ? nbits_n - (nbits_d-1) : 0;
     int nbits_r = nbits_n > nbits_d-1 ? nbits_n : nbits_d-1;
-    int ndigs_q = (nbits_q + (BITS_PER_DIGIT-1))/BITS_PER_DIGIT;
-    int ndigs_r = (nbits_r + (BITS_PER_DIGIT-1))/BITS_PER_DIGIT;
+    int ndigs_q = (nbits_q + (PyLong_SHIFT-1))/PyLong_SHIFT;
+    int ndigs_r = (nbits_r + (PyLong_SHIFT-1))/PyLong_SHIFT;
 
     
     PyLongObject *q = _PyLong_New(ndigs_q);
@@ -491,7 +490,7 @@ pygf2x_div(PyObject *self, PyObject *args)
     memset(r_digits+ndigs_n,0,(ndigs_r-ndigs_n)*sizeof(digit));
     memcpy(r_digits, numerator->ob_digit, ndigs_n*sizeof(digit));
     
-    DBG_PRINTF("Bits per digit   = %-4d\n",BITS_PER_DIGIT);
+    DBG_PRINTF("Bits per digit   = %-4d\n",PyLong_SHIFT);
     DBG_PRINTF("Numerator bits   = %-4d\n",nbits_n);
     DBG_PRINTF("Denominator bits = %-4d\n",nbits_d);
     DBG_PRINTF("Quotient bits    = %-4d\n",nbits_q);
@@ -503,20 +502,20 @@ pygf2x_div(PyObject *self, PyObject *args)
     if(nbits_d < LIMIT_DIV_BITWISE) {
         // Use bitwise Euclidean division for small denominators because it is possibly more efficient
 	for(int ib_r = nbits_n-1; ib_r >= nbits_d-1; ib_r--) {
-	    int id_r = (ib_r/BITS_PER_DIGIT);    // Digit position
-	    int ibd_r = ib_r-id_r*BITS_PER_DIGIT; // Bit position in digit
+	    int id_r = (ib_r/PyLong_SHIFT);    // Digit position
+	    int ibd_r = ib_r-id_r*PyLong_SHIFT; // Bit position in digit
 	    if(r_digits[id_r] & (1<<ibd_r)) {
 		// Numerator bit is set. Set quotient bit and subtract denominator
 		int ib_q  = ib_r - nbits_d +1;
-		int id_q  = ib_q/BITS_PER_DIGIT;       // Digit position
-		int ibd_q = ib_q%BITS_PER_DIGIT;       // Bit position in digit
+		int id_q  = ib_q/PyLong_SHIFT;       // Digit position
+		int ibd_q = ib_q%PyLong_SHIFT;       // Bit position in digit
 		q_digits[id_q] |= (1<<ibd_q);
 		for(int ib_d  = nbits_d-1; ib_d >= 0 ; ib_d--) {
-		    int id_d  = ib_d/BITS_PER_DIGIT;   // Digit position
-		    int ibd_d = ib_d%BITS_PER_DIGIT;   // Bit position in digit
+		    int id_d  = ib_d/PyLong_SHIFT;   // Digit position
+		    int ibd_d = ib_d%PyLong_SHIFT;   // Bit position in digit
 		    int ib_dr  = ib_r - ((nbits_d-1) - ib_d);
-		    int id_dr  = ib_dr/BITS_PER_DIGIT; // Digit position
-		    int ibd_dr = ib_dr%BITS_PER_DIGIT; // Bit position in digit
+		    int id_dr  = ib_dr/PyLong_SHIFT; // Digit position
+		    int ibd_dr = ib_dr%PyLong_SHIFT; // Bit position in digit
 		    r_digits[id_dr] ^= ((denominator->ob_digit[id_d] >> ibd_d) & 1) << ibd_dr;
 		}
 	    }
@@ -587,8 +586,8 @@ pygf2x_div(PyObject *self, PyObject *args)
 		int ib_d = GF2X_MIN(jb_d + 4, nbits_d - 1);
 		int nbits_dc = ib_d - jb_d + 1;
 	        // Extract the denominator chunk
-		int jd_d  = jb_d/BITS_PER_DIGIT;
-		int jbd_d = jb_d%BITS_PER_DIGIT;
+		int jd_d  = jb_d/PyLong_SHIFT;
+		int jbd_d = jb_d%PyLong_SHIFT;
 		DBG_ASSERT(jd_d < ndigs_d);
 	        uint16_t dc = (denominator->ob_digit[jd_d] >> jbd_d) & 0x1f;
 
@@ -604,9 +603,7 @@ pygf2x_div(PyObject *self, PyObject *args)
 		int ib_qhdc = ib_r - ((nbits_d-1) - jb_d) + (nbits_dc-1);
 		add_chunk(r_digits, ib_qhdc, nbits_qhdc, qhdc, ndigs_r);
 	    }
-#ifdef DEBUG_PYGF2X
 	    DBG_ASSERT(extract_chunk(r_digits, ib_r, ndiv, ndigs_r) == 0);
-#endif
 	}
     }
 
