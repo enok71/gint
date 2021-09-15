@@ -326,6 +326,105 @@ pygf2x_sqr(PyObject *self, PyObject *args) {
     return (PyObject *)p;
 }
 
+static void mul_nl_nr(digit * restrict const p,
+		      const digit * restrict const l0, int nl,
+		      const digit * restrict const r0, int nr)
+{
+    static int depth = 0;
+
+    if(nl == 1) {
+	// Stop recursing
+	DBG_PRINTF("%-2d:[0,%d],[0,%d]\n",depth,nl,nr);
+	digit ld = l0[0];
+	for(int id_r=0; id_r<nr; id_r++) {
+	    digit rd = r0[id_r];
+#if (PyLong_SHIFT == 15)
+	    twodigits pc = mul_15_15(ld,rd);
+#elif (PyLong_SHIFT == 30)		
+	    twodigits pc = mul_30_30(ld,rd);
+#else
+#error
+#endif
+	    p[id_r  ] ^= (digit)pc & PyLong_MASK;
+	    p[id_r+1] ^= pc >> PyLong_SHIFT;
+	}
+    } else if(nr == 1) {
+	// Stop recursing
+	DBG_PRINTF("%-2d:[0,%d],[0,%d]\n",depth,nl,nr);
+	digit rd = r0[0];
+	for(int id_l=0; id_l<nl; id_l++) {
+	    digit ld = l0[id_l];
+#if (PyLong_SHIFT == 15)
+	    twodigits pc = mul_15_15(ld,rd);
+#elif (PyLong_SHIFT == 30)		
+	    twodigits pc = mul_30_30(ld,rd);
+#else
+#error
+#endif
+	    p[id_l  ] ^= (digit)pc & PyLong_MASK;
+	    p[id_l+1] ^= pc >> PyLong_SHIFT;
+	}
+    } else if(nl > 2*nr) {
+    // Divide l to form more square-like pieces
+	int nc = nl/nr; // Number of chunks
+	for(int ic=0; ic<nc; ic++) {
+	    int icu = (ic+1)*nl/nc;
+	    int icl = ic*nl/nc;
+	    mul_nl_nr(p+icl, l0+icl, icu-icl, r0, nr);
+	}
+    } else if(nr > 2*nl) {
+    // Divide r in two and recurse
+	int nc = nr/nl;
+	for(int ic=0; ic<nc; ic++) {
+	    int icu = (ic+1)*nr/nc;
+	    int icl = ic*nr/nc;
+	    mul_nl_nr(p+icl, l0, nl, r0+icl, icu-icl);
+	}
+    } else if(nl>1 && nr>1) {
+    // Use Karatsuba
+	int m = GF2X_MIN(nl/2,nr/2);
+	const digit * restrict l1 = l0+m;
+	const digit * restrict r1 = r0+m;
+	DBG_PRINTF("%-2d:[0,%d,%d],[0,%d,%d]\n",depth,m,nl,m,nr);
+
+	digit r01[nr-m];               // r01 = r0^r1
+	for(int i=0; i<nr-m; i++)
+	    r01[i] = r1[i];
+	for(int i=0; i<m; i++)
+	    r01[i] ^= r0[i];
+	
+	digit l01[nl-m];               // l01 = l0^l1
+	for(int i=0; i<nl-m; i++)
+	    l01[i] = l1[i];
+	for(int i=0; i<m; i++)
+	    l01[i] ^= l0[i];
+
+	depth += 1;
+	digit z0[2*m];                 // z0 = l0*r0
+	memset(z0,0,sizeof(z0));
+	mul_nl_nr(z0, l0, m, r0, m);
+
+	digit z2[(nl-m)+(nr-m)];     // z2 = l1*r1
+	memset(z2,0,sizeof(z2));
+	mul_nl_nr(z2, l1, nl-m, r1, nr-m);
+	
+	digit z1[(nl-m)+(nr-m)];     // z1 = l01*r01
+	memset(z1,0,sizeof(z1));
+	mul_nl_nr(z1, l01, nl-m, r01, nr-m);
+	depth -= 1;
+
+	for(int id_p=0; id_p<2*m; id_p++)
+	    p[id_p] ^= z0[id_p];
+
+	for(int id_p=0; id_p<(nl-m)+(nr-m); id_p++)
+	    (p+2*m)[id_p] ^= z2[id_p];
+
+	for(int id_p=0; id_p<(nl-m)+(nr-m); id_p++)
+	    (p+m)[id_p] ^= z1[id_p] ^z2[id_p];
+	for(int id_p=0; id_p<2*m; id_p++)
+	    (p+m)[id_p] ^= z0[id_p];
+    }
+}
 
 static PyObject *
 pygf2x_mul(PyObject *self, PyObject *args) {
@@ -356,42 +455,20 @@ pygf2x_mul(PyObject *self, PyObject *args) {
     int ndigs_r = (nbits_r + (PyLong_SHIFT-1))/PyLong_SHIFT;
     int ndigs_p = (nbits_p + (PyLong_SHIFT-1))/PyLong_SHIFT;
 
-    int n5_l = (nbits_l+4)/5;
-    int n5_r = (nbits_r+4)/5;
-    int n5_p = n5_l + n5_r -1;
-
-    digit result[ndigs_l + ndigs_r -1];
-    memset(result,0,ndigs_p*sizeof(digit));
+    digit result[ndigs_l + ndigs_r];
+    memset(result,0,sizeof(result));
     
     DBG_PRINTF("Bits per digit   = %-4d\n",PyLong_SHIFT);
     DBG_PRINTF("Left factor bits = %-4d\n",nbits_l);
     DBG_PRINTF("Right factor bits= %-4d\n",nbits_r);
     DBG_PRINTF("Product digits   = %-4d\n",ndigs_p);
 
-    const digit *restrict const digits_l = fl->ob_digit;
-    const digit *restrict const digits_r = fr->ob_digit;
+    mul_nl_nr(result, fl->ob_digit, ndigs_l, fr->ob_digit, ndigs_r);
 
-    for(int id_l=0; id_l<ndigs_l; id_l++) {
-	for(int id_r=0; id_r<ndigs_r; id_r++) {
-	    digit ld = digits_l[id_l];
-	    digit rd = digits_r[id_r];
-#if (PyLong_SHIFT == 15)
-	    twodigits pc = mul_15_15(ld,rd);
-#elif (PyLong_SHIFT == 30)		
-	    twodigits pc = mul_30_30(ld,rd);
-#else
-#error
-#endif
-	    result[id_l+id_r  ] ^= (digit)pc & PyLong_MASK;
-	    result[id_l+id_r+1] ^= pc >> (digit)PyLong_SHIFT;
-	}
-    }
-    
     DBG_PRINTF_DIGITS("Product          :",result,ndigs_p);
 
     PyLongObject *p = _PyLong_New(ndigs_p);
-    for(int n=0; n<ndigs_p; n++)
-	p->ob_digit[n] = result[n];
+    memcpy(p->ob_digit, result, sizeof(digit)*ndigs_p);
 
     return (PyObject *)p;
 }
