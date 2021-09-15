@@ -294,10 +294,9 @@ pygf2x_sqr(PyObject *self, PyObject *args) {
 
     int nbits_f = nbits(f);
     int nbits_p = 2*nbits_f -1;
-
-    int n15_f = (nbits_f + 14)/15;
-
     int ndigs_p = (nbits_p + (PyLong_SHIFT-1))/PyLong_SHIFT;
+    int ndigs_f = ((PyVarObject *)f)->ob_size;
+
     PyLongObject *p = _PyLong_New(ndigs_p);
     digit *restrict result = p->ob_digit;
     memset(result,0,ndigs_p*sizeof(digit));
@@ -306,19 +305,32 @@ pygf2x_sqr(PyObject *self, PyObject *args) {
     DBG_PRINTF("factor bits      = %-4d\n",nbits_f);
     DBG_PRINTF("Square digits    = %-4d\n",ndigs_p);
 
-    for(int i15_f=0; i15_f<n15_f; i15_f++) {
-        uint16_t ph = 0, pl = 0;
-	int id_f   = i15_f/N15_PER_DIGIT;
-	int i15d_f = i15_f%N15_PER_DIGIT;
-	uint16_t f15 = (f->ob_digit[id_f] >> (15*i15d_f)) & 0x7fff;
-	pl = sqr_8[f15 & 0xff];               // The least significant 15 bits
-	ph = sqr_8[(f15 >> 8) & 0x7f] << 1;   // The most significant 14 bits
+    const digit *restrict fdigits = f->ob_digit;
 
-	int i15_p  = 2*i15_f;
-	int i15_p_ = i15_p+1;
-	result[(i15_p )/N15_PER_DIGIT] ^= ((digit)pl<<(15*((i15_p )%N15_PER_DIGIT)));
-	if(ph)
-	    result[(i15_p_)/N15_PER_DIGIT] ^= ((digit)ph<<(15*((i15_p_)%N15_PER_DIGIT)));
+    int idp=0;
+    for(int id=0; id<ndigs_f; id++) {
+	digit ic = fdigits[id];
+#if (PyLong_SHIFT == 15)
+	digit pc0 = sqr_8[ic&0xff];
+	result[idp++] ^= pc0;
+	ic>>=8;
+	digit pc1 = sqr_8[ic&0x7f];
+	if(idp < ndigs_p)
+	    result[idp++] ^= pc1;
+#elif (PyLong_SHIFT == 30)		
+	uint16_t pc0 = sqr_8[ic&0xff];
+	ic>>=8;
+	uint16_t pc1 = sqr_8[ic&0x7f];
+	result[idp++] ^= (pc1 << 16) ^ pc0;
+	ic>>=7;
+	uint16_t pc2 = sqr_8[ic&0xff];
+	ic>>=8;
+	uint16_t pc3 = sqr_8[ic&0x7f];
+	if(idp < ndigs_p)
+	    result[idp++] ^= (pc3 << 16) ^ pc2;
+#else
+#error
+#endif
     }
 
     DBG_PRINTF_DIGITS("Square:",result,ndigs_p);
@@ -692,8 +704,7 @@ pygf2x_div(PyObject *self, PyObject *args)
     DBG_PRINTF_DIGITS("Remainder        :",r_digits,ndigs_r);
     
     PyLongObject *r = _PyLong_New(ndigs_r);
-    for(int i=0; i<ndigs_r; i++)
-        r->ob_digit[i] = r_digits[i];
+    memcpy(r->ob_digit, r_digits, sizeof(digit)*ndigs_r);
 
     return Py_BuildValue("OO", q, r);
 }
