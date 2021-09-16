@@ -44,7 +44,6 @@ static void my_abort() {
 #define GF2X_MIN(a,b) ((a<b) ? (a) : (b))
 
 static const int LIMIT_DIV_BITWISE = 5;
-//#define USE_KARATSUBA_15_15
 #define NDIV 10
 #define inv_NDIV inv_10
 
@@ -213,32 +212,6 @@ mul_15_15(uint16_t l, uint16_t r)
     r>>=5;
     uint8_t r2 = r&0x1f;
 
-#ifdef USE_KARATSUBA_15_15
-    // The following is the result of applying Karatsuba
-    // twice on a 3-digit representation.
-    uint8_t l01   = l0^l1;
-    uint8_t r01   = r0^r1;
-    uint8_t l12   = l1^l2;
-    uint8_t r12   = r1^r2;
-    uint8_t l012  = l01^l2;
-    uint8_t r012  = r01^r2;
-    uint16_t p0   = mul_5_5[l0][r0];
-    uint16_t p1   = mul_5_5[l1][r1];
-    uint16_t p2   = mul_5_5[l2][r2];
-    uint16_t p01  = mul_5_5[l01][r01];
-    uint16_t p12  = mul_5_5[l12][r12];
-    uint16_t p012 = mul_5_5[l012][r012];
-    uint32_t p = p2;
-    p <<= 5;
-    p ^= p12 ^ p1 ^ p2;
-    p <<= 5;
-    p ^= p012 ^ p01 ^ p12; // The term p1^p1 cancels out here thanks to Gallois arithmetic
-    p <<= 5;
-    p ^= p01 ^ p1 ^ p0;
-    p <<= 5;
-    p ^= p0;
-    // 6 mul + 12 add
-#else
     uint32_t p = mul_5_5[l2][r2];
     p <<= 5;
     p ^= mul_5_5[l1][r2] ^ mul_5_5[l2][r1];
@@ -248,8 +221,7 @@ mul_15_15(uint16_t l, uint16_t r)
     p ^= mul_5_5[l0][r1] ^ mul_5_5[l1][r0];
     p <<= 5;
     p ^= mul_5_5[l0][r0];
-    // 9 mul + 4 add
-#endif   
+
     return p;
 }
 
@@ -257,8 +229,8 @@ static uint64_t
 mul_30_30(uint32_t l, uint32_t r) 
 // Multiply two unsigned 30-bit polynomials over GF(2) (stored in uint32_t)
 // Return as a 59-bit polynomial (stored in uint64_t)
-// Uses Karatsubas formula
 {
+    // Use Karatsubas formula and mul_15_15
     uint16_t ll = l &0x7fff;
     uint16_t lh = (l >> 15) &0x7fff;
     uint16_t rl = r &0x7fff;
@@ -341,9 +313,13 @@ pygf2x_sqr(PyObject *self, PyObject *args) {
 static void mul_nl_nr(digit * restrict const p,
 		      const digit * restrict const l0, int nl,
 		      const digit * restrict const r0, int nr)
+//
+// Recursive function for Karatsuba multiplication
+//
 {
+#ifdef DEBUG_PYGF2X
     static int depth = 0;
-
+#endif
     if(nl == 1) {
 	// Stop recursing
 	DBG_PRINTF("%-2d:[0,%d],[0,%d]\n",depth,nl,nr);
@@ -377,7 +353,7 @@ static void mul_nl_nr(digit * restrict const p,
 	    p[id_l+1] ^= pc >> PyLong_SHIFT;
 	}
     } else if(nl > 2*nr) {
-    // Divide l to form more square-like pieces
+    // Divide l to form more equal sized pieces
 	int nc = nl/nr; // Number of chunks
 	for(int ic=0; ic<nc; ic++) {
 	    int icu = (ic+1)*nl/nc;
@@ -385,8 +361,8 @@ static void mul_nl_nr(digit * restrict const p,
 	    mul_nl_nr(p+icl, l0+icl, icu-icl, r0, nr);
 	}
     } else if(nr > 2*nl) {
-    // Divide r in two and recurse
-	int nc = nr/nl;
+    // Divide l to form more equal sized pieces
+	int nc = nr/nl; // Number of chunks
 	for(int ic=0; ic<nc; ic++) {
 	    int icu = (ic+1)*nr/nc;
 	    int icl = ic*nr/nc;
@@ -400,41 +376,45 @@ static void mul_nl_nr(digit * restrict const p,
 	DBG_PRINTF("%-2d:[0,%d,%d],[0,%d,%d]\n",depth,m,nl,m,nr);
 
 	digit r01[nr-m];               // r01 = r0^r1
-	for(int i=0; i<nr-m; i++)
-	    r01[i] = r1[i];
 	for(int i=0; i<m; i++)
-	    r01[i] ^= r0[i];
+	    r01[i] = r0[i] ^ r1[i];
+	for(int i=m; i<nr-m; i++)
+	    r01[i] = r1[i];
 	
 	digit l01[nl-m];               // l01 = l0^l1
-	for(int i=0; i<nl-m; i++)
-	    l01[i] = l1[i];
 	for(int i=0; i<m; i++)
-	    l01[i] ^= l0[i];
+	    l01[i] = l0[i] ^ l1[i];
+	for(int i=m; i<nl-m; i++)
+	    l01[i] = l1[i];
 
+#ifdef DEBUG_PYGF2X
 	depth += 1;
+#endif
 	digit z0[2*m];                 // z0 = l0*r0
 	memset(z0,0,sizeof(z0));
 	mul_nl_nr(z0, l0, m, r0, m);
 
-	digit z2[(nl-m)+(nr-m)];     // z2 = l1*r1
+	digit z2[(nl-m)+(nr-m)];       // z2 = l1*r1
 	memset(z2,0,sizeof(z2));
 	mul_nl_nr(z2, l1, nl-m, r1, nr-m);
 	
-	digit z1[(nl-m)+(nr-m)];     // z1 = l01*r01
+	digit z1[(nl-m)+(nr-m)];       // z1 = l01*r01
 	memset(z1,0,sizeof(z1));
 	mul_nl_nr(z1, l01, nl-m, r01, nr-m);
-	depth -= 1;
 
+#ifdef DEBUG_PYGF2X
+	depth -= 1;
+#endif
 	for(int id_p=0; id_p<2*m; id_p++)
 	    p[id_p] ^= z0[id_p];
 
-	for(int id_p=0; id_p<(nl-m)+(nr-m); id_p++)
-	    (p+2*m)[id_p] ^= z2[id_p];
+	for(int id_p=0; id_p<2*m; id_p++)
+	    (p+m)[id_p] ^= z0[id_p] ^ z1[id_p] ^ z2[id_p];
+	for(int id_p=2*m; id_p<(nl-m)+(nr-m); id_p++)
+	    (p+m)[id_p] ^= z1[id_p] ^ z2[id_p];
 
 	for(int id_p=0; id_p<(nl-m)+(nr-m); id_p++)
-	    (p+m)[id_p] ^= z1[id_p] ^z2[id_p];
-	for(int id_p=0; id_p<2*m; id_p++)
-	    (p+m)[id_p] ^= z0[id_p];
+	    (p+2*m)[id_p] ^= z2[id_p];
     }
 }
 
