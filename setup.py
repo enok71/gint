@@ -16,6 +16,7 @@ setup_args = dict(
             'pygf2x_generic',
             ['c_ext/pygf2x_generic.c'],
             include_dirs = ['c_ext'],
+            extra_compile_args = ["-march=native"],
             py_limited_api = True
         )
     ]

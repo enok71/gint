@@ -15,6 +15,12 @@
 #include <string.h>
 #include <stdio.h>
 
+#if defined(__SSE__)
+#include <immintrin.h>
+#elif defined(__ARM_NEON)
+#include <mmintrin.h>
+#endif
+
 //#define DEBUG_PYGF2X
 #ifdef DEBUG_PYGF2X
 #define DBG_PRINTF(...) printf(__VA_ARGS__)
@@ -38,8 +44,6 @@ static void my_abort() {
 #define DBG_ASSERT(x)
 #endif
 
-#define N5_PER_DIGIT  (PyLong_SHIFT / 5)
-#define N15_PER_DIGIT (PyLong_SHIFT / 15)
 #define GF2X_MAX(a,b) ((a>b) ? (a) : (b))
 #define GF2X_MIN(a,b) ((a<b) ? (a) : (b))
 
@@ -230,6 +234,33 @@ mul_30_30(uint32_t l, uint32_t r)
 // Multiply two unsigned 30-bit polynomials over GF(2) (stored in uint32_t)
 // Return as a 59-bit polynomial (stored in uint64_t)
 {
+#if defined(__PCLMUL__)
+    __m128i li = {l,0};
+    __m128i ri = {r,0};
+    __m128i pi = _mm_clmulepi64_si128(li,ri,0);
+    return pi[0];
+#elif defined(__ARM_NEON)
+    poly8x8_t li1 = {l>>16, l>>16, l>>16, l>>16, l>>24, l>>24, l>>24, l>>24};
+    poly8x8_t ri  = {r    , r>> 8, r>>16, r>>24, r    , r>> 8, r>>16, r>>24};
+    poly16x8  pi1 = vmull_p8(li1,ri);
+    poly8x8_t li0 = {l    , l    , l    , l    , l>> 8, l>> 8, l>> 8, l>> 8};
+    poly16x8  pi0 = vmull_p8(li0,ri);
+    uint64_t  p0  = pi1[7];
+    p <<= 8;
+    p ^= pi1[6] ^ pi1[3];
+    p <<= 8;
+    p ^= pi1[5] ^ pi1[2] ^ pi0[7];
+    p <<= 8;
+    p ^= pi1[4] ^ pi1[1] ^ pi0[6] ^ pi0[3];
+    p <<= 8;
+    p ^= pi1[0] ^ pi0[5] ^ pi0[2];
+    p <<= 8;
+    p ^= pi0[4] ^ pi0[1];
+    p <<= 8;
+    p ^= pi0[0];
+
+    return p;
+#else
     // Use Karatsubas formula and mul_15_15
     uint16_t ll = l &0x7fff;
     uint16_t lh = (l >> 15) &0x7fff;
@@ -241,6 +272,7 @@ mul_30_30(uint32_t l, uint32_t r)
     uint32_t z1 = mul_15_15(ll ^ lh, rl ^ rh) ^z2 ^z0;
 
     return ((((uint64_t)z2 << 15) ^ (uint64_t)z1 ) << 15) ^ (uint64_t)z0;
+#endif
 }
 
 
