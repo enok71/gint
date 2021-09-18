@@ -276,6 +276,32 @@ mul_30_30(uint32_t l, uint32_t r)
 }
 
 
+static void
+mul_60_60(uint64_t p[2], uint64_t l, uint64_t r)
+{
+#if defined(__PCLMUL__)
+    __m128i li = {l,0};
+    __m128i ri = {r,0};
+    __m128i pi = _mm_clmulepi64_si128(li,ri,0);
+    p[0] = pi[0];
+    p[1] = pi[1];
+#else
+    // Use Karatsubas formula and mul_30_30
+    uint32_t ll = l &0x3fffffff;
+    uint32_t lh = (l >> 30) &0x3fffffff;
+    uint32_t rl = r &0x3fffffff;
+    uint32_t rh = (r >> 30) &0x3fffffff;
+
+    uint64_t z0 = mul_30_30(ll,rl);
+    uint64_t z2 = mul_30_30(lh,rh);
+    uint64_t z1 = mul_30_30(ll ^ lh, rl ^ rh) ^z2 ^z0;
+
+    p[0] = (((z2 << 30) ^ z1) << 30) ^ z0;
+    p[1] = ((z1 >> 30) ^ z2) >> 4;
+#endif    
+}
+
+
 static PyObject *
 pygf2x_sqr(PyObject *self, PyObject *args) {
     // Square one Python integer, interpreted as polynomial over GF(2)
