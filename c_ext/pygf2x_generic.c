@@ -497,6 +497,12 @@ pygf2x_mul(PyObject *self, PyObject *args) {
         PyErr_SetString(PyExc_ValueError, "Both arguments must be non-negative");
         return NULL;
     }
+    if(((PyVarObject *)fl)->ob_size == 0 ||
+       ((PyVarObject *)fr)->ob_size == 0) {
+	// Product is zero if either operand is zero
+	PyLongObject *p = _PyLong_New(0);
+	return (PyObject *)p;
+    }
 
     int nbits_l = nbits(fl);
     int nbits_r = nbits(fr);
