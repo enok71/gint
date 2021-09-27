@@ -21,10 +21,10 @@
 #include <mmintrin.h>
 #endif
 
-//#define DEBUG_PYGF2X
+#define DEBUG_PYGF2X
+//#define DEBUG_PYGF2X_VERBOSE
+
 #ifdef DEBUG_PYGF2X
-#define DBG_PRINTF(...) printf(__VA_ARGS__)
-#define DBG_PRINTF_DIGITS(msg,digits,ndigs) { DBG_PRINTF(msg); for(int i=ndigs-1; i>=0; i--) DBG_PRINTF("%08x", digits[i]); DBG_PRINTF("\n"); }
 #include <execinfo.h>
 #define DBG_ASSERT(x) { if (! (x) ) { fprintf(stderr,"Assertion failed on line %d: %s\n",__LINE__,#x); my_abort(); } }
 static void my_abort() {
@@ -39,15 +39,22 @@ static void my_abort() {
   exit(1);
 }
 #else
+#define DBG_ASSERT(x)
+#endif
+
+#ifdef DEBUG_PYGF2X_VERBOSE
+#define DBG_PRINTF(...) printf(__VA_ARGS__)
+#define DBG_PRINTF_DIGITS(msg,digits,ndigs) { DBG_PRINTF(msg); for(int i=ndigs-1; i>=0; i--) DBG_PRINTF("%08x", digits[i]); DBG_PRINTF("\n"); }
+#else
 #define DBG_PRINTF(...)
 #define DBG_PRINTF_DIGITS(...)
-#define DBG_ASSERT(x)
 #endif
 
 #define GF2X_MAX(a,b) ((a>b) ? (a) : (b))
 #define GF2X_MIN(a,b) ((a<b) ? (a) : (b))
 
-static const int LIMIT_DIV_BITWISE = 5;
+#define LIMIT_DIV_BITWISE 0
+#define LIMIT_DIV_EUCLID 0
 #define NDIV 10
 #define inv_NDIV inv_10
 
@@ -301,6 +308,35 @@ mul_60_60(uint64_t p[2], uint64_t l, uint64_t r)
 #endif    
 }
 
+static void
+square_n(digit * restrict result, int ndigs_p, const digit *fdigits, int ndigs_f)
+{
+    int idp=0;
+    for(int id=0; id<ndigs_f; id++) {
+	digit ic = fdigits[id];
+#if (PyLong_SHIFT == 15)
+	digit pc0 = sqr_8[ic&0xff];
+	result[idp++] ^= pc0;
+	ic>>=8;
+	digit pc1 = sqr_8[ic&0x7f];
+	if(idp < ndigs_p)
+	    result[idp++] ^= pc1;
+#elif (PyLong_SHIFT == 30)		
+	uint16_t pc0 = sqr_8[ic&0xff];
+	ic>>=8;
+	uint16_t pc1 = sqr_8[ic&0x7f];
+	result[idp++] ^= (pc1 << 16) ^ pc0;
+	ic>>=7;
+	uint16_t pc2 = sqr_8[ic&0xff];
+	ic>>=8;
+	uint16_t pc3 = sqr_8[ic&0x7f];
+	if(idp < ndigs_p)
+	    result[idp++] ^= (pc3 << 16) ^ pc2;
+#else
+#error
+#endif
+    }
+}
 
 static PyObject *
 pygf2x_sqr(PyObject *self, PyObject *args) {
@@ -335,35 +371,9 @@ pygf2x_sqr(PyObject *self, PyObject *args) {
     DBG_PRINTF("factor bits      = %-4d\n",nbits_f);
     DBG_PRINTF("Square digits    = %-4d\n",ndigs_p);
 
-    const digit *restrict fdigits = f->ob_digit;
+    square_n(result, ndigs_p, f->ob_digit, ndigs_f);
 
-    int idp=0;
-    for(int id=0; id<ndigs_f; id++) {
-	digit ic = fdigits[id];
-#if (PyLong_SHIFT == 15)
-	digit pc0 = sqr_8[ic&0xff];
-	result[idp++] ^= pc0;
-	ic>>=8;
-	digit pc1 = sqr_8[ic&0x7f];
-	if(idp < ndigs_p)
-	    result[idp++] ^= pc1;
-#elif (PyLong_SHIFT == 30)		
-	uint16_t pc0 = sqr_8[ic&0xff];
-	ic>>=8;
-	uint16_t pc1 = sqr_8[ic&0x7f];
-	result[idp++] ^= (pc1 << 16) ^ pc0;
-	ic>>=7;
-	uint16_t pc2 = sqr_8[ic&0xff];
-	ic>>=8;
-	uint16_t pc3 = sqr_8[ic&0x7f];
-	if(idp < ndigs_p)
-	    result[idp++] ^= (pc3 << 16) ^ pc2;
-#else
-#error
-#endif
-    }
-
-    DBG_PRINTF_DIGITS("Square:",result,ndigs_p);
+    DBG_PRINTF_DIGITS("Square:", result, ndigs_p);
 
     return (PyObject *)p;
 }
@@ -497,9 +507,9 @@ pygf2x_mul(PyObject *self, PyObject *args) {
         PyErr_SetString(PyExc_ValueError, "Both arguments must be non-negative");
         return NULL;
     }
+
     if(((PyVarObject *)fl)->ob_size == 0 ||
        ((PyVarObject *)fr)->ob_size == 0) {
-	// Product is zero if either operand is zero
 	PyLongObject *p = _PyLong_New(0);
 	return (PyObject *)p;
     }
@@ -576,6 +586,311 @@ static inline void add_chunk(digit *digits, int ib, int nch, uint16_t value, con
     }
 }
 
+static void
+div_bitwise(digit * restrict q_digits,
+	    digit * restrict r_digits,
+	    const digit * restrict d_digits,
+	    int nbits_n, int nbits_d)
+{
+    for(int ib_r = nbits_n-1; ib_r >= nbits_d-1; ib_r--) {
+	int id_r = (ib_r/PyLong_SHIFT);    // Digit position
+	int ibd_r = ib_r-id_r*PyLong_SHIFT; // Bit position in digit
+	if(r_digits[id_r] & (1<<ibd_r)) {
+	    // Numerator bit is set. Set quotient bit and subtract denominator
+	    int ib_q  = ib_r - nbits_d +1;
+	    int id_q  = ib_q/PyLong_SHIFT;       // Digit position
+	    int ibd_q = ib_q%PyLong_SHIFT;       // Bit position in digit
+	    q_digits[id_q] |= (1<<ibd_q);
+	    for(int ib_d  = nbits_d-1; ib_d >= 0 ; ib_d--) {
+		int id_d  = ib_d/PyLong_SHIFT;   // Digit position
+		int ibd_d = ib_d%PyLong_SHIFT;   // Bit position in digit
+		int ib_dr  = ib_r - ((nbits_d-1) - ib_d);
+		int id_dr  = ib_dr/PyLong_SHIFT; // Digit position
+		int ibd_dr = ib_dr%PyLong_SHIFT; // Bit position in digit
+		r_digits[id_dr] ^= ((d_digits[id_d] >> ibd_d) & 1) << ibd_dr;
+	    }
+	}
+    }
+}
+
+static void
+div_NDIVwise(digit * restrict q_digits,
+	     digit * restrict r_digits,
+	     const digit * restrict d_digits,
+	     int nbits_n, int nbits_d,
+	     int ndigs_n, int ndigs_d, int ndigs_q, int ndigs_r)
+{
+    uint16_t inv_dh;
+    // Extract dh = most significant "chunk" of denominator, and invert it.
+    // bitsize is MIN(NDIV,nbits_d)
+    const int nbits_dh = GF2X_MIN(NDIV,nbits_d);
+    {
+	// Extract the highest chunk of denominator
+	int ib_d = nbits_d-1; // Highest bit position in highest digit of denominator
+	uint16_t dh = extract_chunk(d_digits, ib_d, nbits_dh, ndigs_d);
+
+	// Invert dh using tablulated inverse
+	dh <<= (NDIV - nbits_dh);
+	DBG_ASSERT(dh>=(1 << (NDIV-1)) && dh < (1 << NDIV));
+	inv_dh = inv_NDIV[dh - (1 << (NDIV-1))];
+	DBG_ASSERT(inv_dh < (1 << NDIV));
+	inv_dh >>= (NDIV - nbits_dh);
+    }
+    // inv_dh now contains inverse of dh (nbits_dh bits)
+
+    // Update q and r, processing ndiv bits in each step.
+    // ndiv = nbits_dh = min(NDIV,nbits_d), except in the last step where ndiv is smaller to match nbits_d
+    // Loop over most significant bit-position in remainder.
+    int ib_r_;
+    for(int ib_r  = nbits_n - 1; ib_r >= nbits_d - 1; ib_r = ib_r_) {
+	// Compute ib_r_ = next remainder bit position ib_r, after the current iteration
+	if (ib_r > nbits_dh + (nbits_d - 2))
+	    ib_r_ = ib_r - nbits_dh;
+	else
+	    ib_r_ = nbits_d - 2;
+	// ndiv is the number of remainder bits processed in this step.
+	const int ndiv = ib_r - ib_r_;
+
+	// Extract rh = the remainder chunk to be eliminated. Bitsize is ndiv.
+	uint16_t rh = extract_chunk(r_digits, ib_r, ndiv, ndigs_r);
+	DBG_ASSERT(rh < (1<<10));
+	DBG_ASSERT(inv_dh < (1<<10));
+
+	// Compute qh = the quotient chunk. Bitsize is ndiv.
+	uint16_t qh;
+	{
+	    //  qh = (rh*inv(dh))>>(nbits_d-1)
+	    uint32_t qh_tmp = 
+		(( mul_5_5[rh >> 5  ][inv_dh & 0x1f] ^
+		   mul_5_5[rh & 0x1f][inv_dh >> 5  ]) << 5)
+		^( mul_5_5[rh & 0x1f][inv_dh & 0x1f] )
+		^( mul_5_5[rh >> 5  ][inv_dh >> 5  ] << 10);
+	    // qh_tmp is now nbits_dh + ndiv - 1 bits
+	    qh_tmp >>= (nbits_dh -1);
+	    // qh_tmp is now ndiv bits
+	    DBG_ASSERT((int)qh_tmp < (1 << ndiv));
+	    qh = qh_tmp;
+	}
+
+	// Update q by inserting qh in the right position
+	int ib_q  = ib_r - (nbits_d - 1);   // Bit position
+	add_chunk(q_digits, ib_q, ndiv, qh, ndigs_q);
+
+	// Update remainder r -= (qh*d) << (ib_r_ - (nbits_d - 1))
+	// Loop over 5-bit chunks in denominator, starting from least significant end
+	// (the last, most significant chunk of the denominator may be smaller than 5 bits)
+	for(int jb_d = 0; jb_d < nbits_d; jb_d += 5 ) {
+	    // Note: jb_d is the least significant bit position of the denominator chunk processed in this step
+	    int ib_d = GF2X_MIN(jb_d + 4, nbits_d - 1);
+	    int nbits_dc = ib_d - jb_d + 1;
+	    // Extract the denominator chunk
+	    int jd_d  = jb_d/PyLong_SHIFT;
+	    int jbd_d = jb_d%PyLong_SHIFT;
+	    DBG_ASSERT(jd_d < ndigs_d);
+	    uint16_t dc = (d_digits[jd_d] >> jbd_d) & 0x1f;
+
+	    // Multiply qh with denominator chunk
+	    // The result qhdc is at most ndiv+nbits_dc-1 bits
+	    DBG_ASSERT(dc<(1<<nbits_dc));
+	    DBG_ASSERT(qh<(1<<ndiv));
+	    uint16_t qhdc = (mul_5_5[dc][qh>>5] << 5) ^ mul_5_5[dc][qh&0x1f];
+	    int nbits_qhdc = ndiv + nbits_dc -1;
+	    DBG_ASSERT(qhdc < (1 << nbits_qhdc));
+
+	    // Add qhdc to the remainder at the appropriate position
+	    int ib_qhdc = ib_r - ((nbits_d-1) - jb_d) + (nbits_dc-1);
+	    add_chunk(r_digits, ib_qhdc, nbits_qhdc, qhdc, ndigs_r);
+	}
+	DBG_ASSERT(extract_chunk(r_digits, ib_r, ndiv, ndigs_r) == 0);
+    }
+}
+
+static void
+inverse(digit *restrict e_digits, int ndigs_e, int nbits_e,
+	const digit * restrict d_digits, int ndigs_d, int nbits_d)
+// Compute inverse e to d such that
+// e*d == 1<<2*(nbits_e-1) + r
+// where d is the nbits_e most significant bits of d_digits
+// and nbits_r < nbits_e
+//
+{
+    DBG_ASSERT(ndigs_e<=ndigs_d);
+    DBG_ASSERT(nbits_e<=nbits_d);
+
+    DBG_PRINTF("inv: nbits_d=%d, nbits_e=%d\n", nbits_d, nbits_e);
+    // Shift the entire d to the left so that the most significant digit has most significant bit =1
+    digit d[ndigs_e];
+    const int shift = (PyLong_SHIFT-1) - (nbits_d + (PyLong_SHIFT-1))%PyLong_SHIFT;
+    for(int n=ndigs_d-1; n>ndigs_d-ndigs_e; n--) {
+	d[n-(ndigs_d-ndigs_e)] = ((d_digits[n]<<shift)&PyLong_MASK) | (d_digits[n-1]>>(PyLong_SHIFT-shift));
+    }
+    d[0] = (d_digits[ndigs_d-ndigs_e] << shift) &PyLong_MASK;
+    if(ndigs_d > ndigs_e)
+	d[0] |= d_digits[ndigs_d-ndigs_e-1] >> (PyLong_SHIFT-shift);
+
+    if(nbits_e <= NDIV) {
+	// Compute the whole inverse using table
+	uint16_t dh = d[ndigs_e-1] >> (PyLong_SHIFT-nbits_e);
+	// Invert dh using tablulated inverse
+	e_digits[ndigs_e-1] = inv_NDIV[(dh<<(NDIV-nbits_e)) - (1 << (NDIV-1))] >>(NDIV-nbits_e);
+	DBG_ASSERT(e_digits[ndigs_e-1] < (1u<<nbits_e));
+	return;
+    }
+    // Find initial approximation of inverse using table
+    {
+	// Extract the highest chunk of denominator
+	uint16_t dh = d[ndigs_e-1] >> (PyLong_SHIFT-NDIV);
+	e_digits[ndigs_e-1] = inv_NDIV[dh - (1 << (NDIV-1))];  // Invert dh using tablulated inverse
+	DBG_ASSERT(e_digits[ndigs_e-1]<(1<<NDIV));
+    }
+    // e now contains NDIV correct bits
+    //
+    // Take the first Newton-step from 8 correct bits to 15
+    //
+    if(nbits_e <= 15) {
+	// Compute the full inverse in this step
+	uint16_t dh = d[ndigs_e-1] >> (PyLong_SHIFT-nbits_e);
+	uint16_t x2 = sqr_8[e_digits[ndigs_e-1] >> (NDIV-8)];  // Go from NDIV to 8 correct bits (throw away some) and square
+	e_digits[ndigs_e-1] = mul_15_15(x2, dh) >> 14;         // nbits_e + 15 -1 - nbits_e = 14
+	DBG_ASSERT(e_digits[ndigs_e-1] < (1u<<nbits_e));
+	return;
+    }
+    {
+	uint16_t dh = d[ndigs_e-1] >> (PyLong_SHIFT-15);
+	uint16_t x2 = sqr_8[e_digits[ndigs_e-1] >> 2]; // Go from 10 to 8 correct bits (throw away two) and square
+	e_digits[ndigs_e-1] = mul_15_15(x2, dh) >> 14; // 15 + 15 -1 - 15 = 14
+	DBG_ASSERT(e_digits[ndigs_e-1]<(1<<15));
+    }
+    // e now contains 15 correct bits
+#if (PyLong_SHIFT == 30)
+    //
+    // Take next Newton-step from 15 correct bits to 30
+    //
+    if(nbits_e <= 30) {
+	// Compute the full inverse in this step
+	uint32_t dh = d[ndigs_e-1] >> (PyLong_SHIFT-nbits_e);
+	uint32_t x2 = ((uint32_t)sqr_8[e_digits[ndigs_e-1] >> 8] << 16) ^ (uint32_t)sqr_8[e_digits[ndigs_e-1] &0xff];
+	// x2 is 2*15-1
+	e_digits[ndigs_e-1] = mul_30_30(x2, dh) >> 28; // nbits_e + 29 -1 - nbits_e = 28
+	DBG_ASSERT(e_digits[ndigs_e-1] < (1u<<nbits_e));
+	return;
+    }
+    {
+	uint32_t dh = d[ndigs_e-1];
+	uint32_t x2 = ((uint32_t)sqr_8[e_digits[ndigs_e-1] >> 8] << 16) ^ (uint32_t)sqr_8[e_digits[ndigs_e-1] &0xff];
+	e_digits[ndigs_e-1] = mul_30_30(x2, dh) >> 28; // 30 + 29 -1 - 30 = 28
+	DBG_ASSERT(e_digits[ndigs_e-1]<(1<<30));
+    }
+    // e now contains 30 correct bits
+#endif
+    // e now contains one full correct digit
+
+    //
+    // Repeat Newton-steps.
+    // In each step the number of correct digits is doubled
+    //
+    int ncorrect;
+    for(ncorrect=1; ncorrect<(ndigs_e>>1); ncorrect<<=1) {
+	int n = ncorrect<<1;
+	digit x2[n];
+	memset(x2, 0, sizeof(x2));
+	square_n(x2, n, &e_digits[ndigs_e-ncorrect], ncorrect);
+    
+	int nn = n<<1;
+	digit etmp[nn];
+	memset(etmp, 0, sizeof(etmp));
+	mul_nl_nr(etmp, &d[ndigs_e-n], n, x2, n);
+
+	// Discard lowest 2*(PyLong_SHIFT*n-1) bits of etmp
+	for(int i=1; i<=n; i++)
+	    e_digits[ndigs_e-i] = (etmp[nn-i] << 2) | (etmp[nn-1-i] >> (PyLong_SHIFT-2));
+    }
+    // e_digits now contains <ncorrect> correct digits
+    
+    //
+    // Last Newton-step
+    //
+    {
+	int n = ncorrect<<1;
+	digit x2[n];
+	memset(x2, 0, sizeof(x2));
+	square_n(x2, n, &e_digits[ndigs_e-ncorrect], ncorrect);
+    
+	int nn = n<<1;
+	digit etmp[nn];
+	memset(etmp, 0, sizeof(etmp));
+	mul_nl_nr(etmp, &d[0], ndigs_e, x2, n);
+
+	// Discard all but the ndigs_e*PyLong_SHIFT-shift significant bits
+	for(int i=1; i<=ndigs_e; i++)
+	    e_digits[ndigs_e-i] = (etmp[nn-i] << 2) | (etmp[nn-1-i] >> (PyLong_SHIFT-2));
+	for(int i=0; i<ndigs_e-1; i++)
+	    e_digits[i] = (e_digits[i]>>shift) | ((e_digits[i+1]<<(PyLong_SHIFT-shift)) &PyLong_MASK);
+	e_digits[ndigs_e-1] = e_digits[ndigs_e-1]>>shift;
+    }
+    return;
+}
+
+
+static PyObject *
+pygf2x_inv(PyObject *self, PyObject *args) {
+    // Multiplicative inverse of one Python integer, interpreted as polynomial over GF(2)
+    (void)self;
+
+    PyLongObject *d;
+    if (!PyArg_ParseTuple(args, "O", &d)) {
+        PyErr_SetString(PyExc_TypeError, "Failed to parse arguments");
+        return NULL;
+    }
+
+    if( ! PyLong_Check(d) ) {
+        PyErr_SetString(PyExc_TypeError, "Arguments must be integer");
+        return NULL;
+    }
+    if(((PyVarObject *)d)->ob_size < 0) {
+        PyErr_SetString(PyExc_ValueError, "Argument must be non-negative");
+        return NULL;
+    }
+
+    int nbits_d = nbits(d);
+    int ndigs_d = ((PyVarObject *)d)->ob_size;
+
+    PyLongObject *e = _PyLong_New(ndigs_d);
+    memset(e->ob_digit, 0, ndigs_d*sizeof(digit));
+    
+    DBG_PRINTF("Bits per digit   = %-4d\n",PyLong_SHIFT);
+    DBG_PRINTF("Denominator bits = %-4d\n",nbits_d);
+
+    inverse(e->ob_digit, ndigs_d, nbits_d,
+	    d->ob_digit, ndigs_d, nbits_d);
+
+    DBG_PRINTF_DIGITS("Inverse:", e->ob_digit, ndigs_d);
+
+    return (PyObject *)e;
+}
+
+
+static void rshift(digit digits[], int ndigs, int nb_shift)
+// Shift in-place nb_shift bits to the right
+// nb_shift must be >=0
+{
+    DBG_ASSERT(nb_shift>=0);
+    DBG_ASSERT(ndigs>=0);
+    if(ndigs==0)
+	return;
+    
+    int nd_shift = nb_shift/PyLong_SHIFT;
+    nb_shift     = nb_shift%PyLong_SHIFT;
+    
+    for(int i=0; nd_shift+1+i < ndigs; i++)
+	digits[i] = (digits[nd_shift+i] >> nb_shift) |
+	    ((digits[nd_shift+1+i] << (PyLong_SHIFT - nb_shift)) & PyLong_MASK);
+    if(ndigs > nd_shift)
+	digits[ndigs-1-nd_shift] = (digits[ndigs-1] >> nb_shift);
+    for(int i=GF2X_MAX(ndigs, nd_shift) - nd_shift; i < ndigs; i++)
+	digits[i] = 0;
+}
+
 static PyObject *
 pygf2x_div(PyObject *self, PyObject *args)
 // Divide two Python integers, interpreted as polynomials over GF(2)
@@ -606,137 +921,96 @@ pygf2x_div(PyObject *self, PyObject *args)
         PyErr_SetString(PyExc_ZeroDivisionError, "Denominator is zero");
         return NULL;
     }
-    int nbits_n = nbits(numerator);
-    int ndigs_n = (nbits_n + (PyLong_SHIFT-1))/PyLong_SHIFT;
+    int nbits_u = nbits(numerator);
+    int ndigs_u = (nbits_u + (PyLong_SHIFT-1))/PyLong_SHIFT;
     
-    int nbits_q = nbits_n > nbits_d-1 ? nbits_n - (nbits_d-1) : 0;
-    int nbits_r = nbits_n > nbits_d-1 ? nbits_n : nbits_d-1;
+    int nbits_q = nbits_u > nbits_d-1 ? nbits_u - (nbits_d-1) : 0;
+    int nbits_r = nbits_u > nbits_d-1 ? nbits_u : nbits_d-1; // The final n.o. remainder bits is <= this value.
     int ndigs_q = (nbits_q + (PyLong_SHIFT-1))/PyLong_SHIFT;
     int ndigs_r = (nbits_r + (PyLong_SHIFT-1))/PyLong_SHIFT;
 
-    
     PyLongObject *q = _PyLong_New(ndigs_q);
     digit *restrict q_digits = q->ob_digit;
     memset(q_digits,0,ndigs_q*sizeof(digit));
     
     digit r_digits[ndigs_r]; // Initialize to numerator
-    memset(r_digits+ndigs_n,0,(ndigs_r-ndigs_n)*sizeof(digit));
-    memcpy(r_digits, numerator->ob_digit, ndigs_n*sizeof(digit));
+    memset(r_digits+ndigs_u,0,(ndigs_r-ndigs_u)*sizeof(digit));
+    memcpy(r_digits, numerator->ob_digit, ndigs_u*sizeof(digit));
     
     DBG_PRINTF("Bits per digit   = %-4d\n",PyLong_SHIFT);
-    DBG_PRINTF("Numerator bits   = %-4d\n",nbits_n);
+    DBG_PRINTF("Numerator bits   = %-4d\n",nbits_u);
     DBG_PRINTF("Denominator bits = %-4d\n",nbits_d);
     DBG_PRINTF("Quotient bits    = %-4d\n",nbits_q);
     DBG_PRINTF("Remainder bits  <= %-4d\n",nbits_r);
 
-    DBG_PRINTF_DIGITS("Numerator        :",numerator->ob_digit,ndigs_n);
+    DBG_PRINTF_DIGITS("Numerator        :",numerator->ob_digit,ndigs_u);
     DBG_PRINTF_DIGITS("Denominator      :",denominator->ob_digit,ndigs_d);
-    
-    if(nbits_d < LIMIT_DIV_BITWISE) {
-        // Use bitwise Euclidean division for small denominators because it is possibly more efficient
-	for(int ib_r = nbits_n-1; ib_r >= nbits_d-1; ib_r--) {
-	    int id_r = (ib_r/PyLong_SHIFT);    // Digit position
-	    int ibd_r = ib_r-id_r*PyLong_SHIFT; // Bit position in digit
-	    if(r_digits[id_r] & (1<<ibd_r)) {
-		// Numerator bit is set. Set quotient bit and subtract denominator
-		int ib_q  = ib_r - nbits_d +1;
-		int id_q  = ib_q/PyLong_SHIFT;       // Digit position
-		int ibd_q = ib_q%PyLong_SHIFT;       // Bit position in digit
-		q_digits[id_q] |= (1<<ibd_q);
-		for(int ib_d  = nbits_d-1; ib_d >= 0 ; ib_d--) {
-		    int id_d  = ib_d/PyLong_SHIFT;   // Digit position
-		    int ibd_d = ib_d%PyLong_SHIFT;   // Bit position in digit
-		    int ib_dr  = ib_r - ((nbits_d-1) - ib_d);
-		    int id_dr  = ib_dr/PyLong_SHIFT; // Digit position
-		    int ibd_dr = ib_dr%PyLong_SHIFT; // Bit position in digit
-		    r_digits[id_dr] ^= ((denominator->ob_digit[id_d] >> ibd_d) & 1) << ibd_dr;
-		}
+
+    if(nbits_u==nbits_d) {
+	// The special case of quotient==1
+	q_digits[0] = 1;
+	for(int i=0; i<ndigs_d; i++)
+	    r_digits[i] ^= denominator->ob_digit[i];
+    } else if(nbits_d==1) {
+	// The special case of denominator==1
+	for(int i=0; i<ndigs_u; i++)
+	    q_digits[i] = r_digits[i];
+	for(int i=0; i<ndigs_r; i++)
+	    r_digits[i] = 0;
+    } else if(nbits_u>=nbits_d) {
+	if(nbits_d < LIMIT_DIV_BITWISE) {
+	    // Use bitwise Euclidean division for small denominators because it is possibly more efficient
+	    div_bitwise(q_digits, r_digits, denominator->ob_digit, nbits_u, nbits_d);
+	} else if(nbits_d < LIMIT_DIV_EUCLID) {
+	    // Use Euclidean division based on tabled inverse of NDIV bit chunks
+	    div_NDIVwise(q_digits, r_digits, denominator->ob_digit, nbits_u, nbits_d, ndigs_u, ndigs_d, ndigs_q, ndigs_r);
+	} else {
+	    /*
+	     *   u = q*d + r
+	     * Let e be an approximation of inv(d) with ne binary digits, i.e.:
+	     *   d*e = (1<<(ne+nd-2)) + re
+	     * where nbits(re) = nd+ne-1 - (ne-1) = nd
+	     * and nbits(q) = nu-nd+1
+	     *   u*e = q*d*e + r*e
+	     *   u*e = q*( (1<<(ne+nd-2)) + re ) + r*e
+	     * Eliminate r*e by discarding nbits(r*e) bits = nd+ne-2 bits:
+	     *   u*e >> (nd+ne-2) = q*( (1<<(ne+nd-2)) + re ) >> (nd+ne-2)
+	     * nbits(q*re) = (nu-nd+1)+nd-1 = nu so remaining bits
+	     * are nu-(nd+ne-2). If this is <0 we are done i.e.
+	     *   nu < nd+ne-2
+	     * otherwise ...?
+	     */
+	    int nbits_e = GF2X_MIN(nbits_u - nbits_d +1, nbits_d);
+	    int ndigs_e = (nbits_e + (PyLong_SHIFT-1))/PyLong_SHIFT;
+
+	    digit e[ndigs_e];
+	    memset(e, 0, sizeof(e));
+	    inverse(e, ndigs_e, nbits_e,
+		    denominator->ob_digit, ndigs_d, nbits_d);
+	    DBG_PRINTF_DIGITS("inverse          :",e,ndigs_e);
+
+	    DBG_PRINTF("ndigs_e=%d, ndigs_u=%d, ndigs_q=%d\n",ndigs_e,ndigs_u,ndigs_q);
+	    for(int nbits_ri=nbits_r;nbits_ri>=nbits_d; nbits_ri -= nbits_e-1) {
+		int ndigs_ri = (nbits_ri + (PyLong_SHIFT-1))/PyLong_SHIFT;
+		digit qtmp[ndigs_e + ndigs_ri];
+		memset(qtmp, 0, sizeof(qtmp));
+		mul_nl_nr(qtmp, e, ndigs_e, r_digits, ndigs_ri);
+		// qtmp is now nbits_e + nbits_ri -1 bits. We just want the nbits_ri - nbits_d +1 most significant bits
+		// So shift (nbits_e + nbits_d -2) bits right
+		rshift(qtmp, ndigs_e + ndigs_ri, nbits_e + nbits_d -2);
+		DBG_PRINTF_DIGITS("qtmp             :",qtmp,ndigs_e+ndigs_ri);
+		int ndigs_qtmp = (nbits_ri + PyLong_SHIFT - nbits_d)/PyLong_SHIFT;
+		for(int i=0; i<ndigs_qtmp; i++)
+		    q_digits[i] ^= qtmp[i];
+		DBG_PRINTF_DIGITS("q                :",q_digits,ndigs_q);
+		int ndigs_rtmp = ndigs_qtmp + ndigs_d;
+		digit rtmp[ndigs_rtmp];
+		memset(rtmp, 0, sizeof(rtmp));
+		mul_nl_nr(rtmp, qtmp, ndigs_qtmp, denominator->ob_digit, ndigs_d);
+		for(int i=0; i<ndigs_rtmp; i++)
+		    r_digits[i] ^= rtmp[i];
+		DBG_PRINTF_DIGITS("r                :",r_digits,ndigs_r);
 	    }
-	}
-    } else {
-        // Use Euclidean division based on tabled inverse of NDIV bit chunks
-	uint16_t inv_dh;
-	// Extract dh = most significant "chunk" of denominator, and invert it.
-	// bitsize is MIN(NDIV,nbits_d)
-	const int nbits_dh = GF2X_MIN(NDIV,nbits_d);
-	{
-	    // Extract the highest chunk of denominator
-	    int ib_d = nbits_d-1; // Highest bit position in highest digit of denominator
-	    uint16_t dh = extract_chunk(denominator->ob_digit, ib_d, nbits_dh, ndigs_d);
-
-	    // Invert dh using tablulated inverse
-	    dh <<= (NDIV - nbits_dh);
-	    DBG_ASSERT(dh>=(1 << (NDIV-1)) && dh < (1 << NDIV));
-	    inv_dh = inv_NDIV[dh - (1 << (NDIV-1))];
-	    DBG_ASSERT(inv_dh < (1 << NDIV));
-	    inv_dh >>= (NDIV - nbits_dh);
-	}
-	// inv_dh now contains inverse of dh (nbits_dh bits)
-
-	// Update q and r, processing ndiv bits in each step.
-	// ndiv = nbits_dh = min(NDIV,nbits_d), except in the last step where ndiv is smaller to match nbits_d
-	// Loop over most significant bit-position in remainder.
-	int ib_r_;
-        for(int ib_r  = nbits_n - 1; ib_r >= nbits_d - 1; ib_r = ib_r_) {
-	    // Compute ib_r_ = next remainder bit position ib_r, after the current iteration
-	    if (ib_r > nbits_dh + (nbits_d - 2))
-		ib_r_ = ib_r - nbits_dh;
-	    else
-		ib_r_ = nbits_d - 2;
-	    // ndiv is the number of remainder bits processed in this step.
- 	    const int ndiv = ib_r - ib_r_;
-
-	    // Extract rh = the remainder chunk to be eliminated. Bitsize is ndiv.
-	    uint16_t rh = extract_chunk(r_digits, ib_r, ndiv, ndigs_r);
-	    DBG_ASSERT(rh < (1<<10));
-	    DBG_ASSERT(inv_dh < (1<<10));
-	    
-	    // Compute qh = the quotient chunk. Bitsize is ndiv.
-	    uint16_t qh;
-	    {
-		//  qh = (rh*inv(dh))>>(nbits_d-1)
-		uint32_t qh_tmp = 
-		    (( mul_5_5[rh >> 5  ][inv_dh & 0x1f] ^
-		       mul_5_5[rh & 0x1f][inv_dh >> 5  ]) << 5)
-		    ^( mul_5_5[rh & 0x1f][inv_dh & 0x1f] )
-		    ^( mul_5_5[rh >> 5  ][inv_dh >> 5  ] << 10);
-		// qh_tmp is now nbits_dh + ndiv - 1 bits
-		qh_tmp >>= (nbits_dh -1);
-		// qh_tmp is now ndiv bits
-		DBG_ASSERT((int)qh_tmp < (1 << ndiv));
-		qh = qh_tmp;
-	    }
-
-	    // Update q by inserting qh in the right position
-	    int ib_q  = ib_r - (nbits_d - 1);   // Bit position
-	    add_chunk(q_digits, ib_q, ndiv, qh, ndigs_q);
-	    
-	    // Update remainder r -= (qh*d) << (ib_r_ - (nbits_d - 1))
-	    // Loop over 5-bit chunks in denominator, starting from least significant end
-	    // (the last, most significant chunk of the denominator may be smaller than 5 bits)
-	    for(int jb_d = 0; jb_d < nbits_d; jb_d += 5 ) {
-		// Note: jb_d is the least significant bit position of the denominator chunk processed in this step
-		int ib_d = GF2X_MIN(jb_d + 4, nbits_d - 1);
-		int nbits_dc = ib_d - jb_d + 1;
-	        // Extract the denominator chunk
-		int jd_d  = jb_d/PyLong_SHIFT;
-		int jbd_d = jb_d%PyLong_SHIFT;
-		DBG_ASSERT(jd_d < ndigs_d);
-	        uint16_t dc = (denominator->ob_digit[jd_d] >> jbd_d) & 0x1f;
-
-		// Multiply qh with denominator chunk
-		// The result qhdc is at most ndiv+nbits_dc-1 bits
-		DBG_ASSERT(dc<(1<<nbits_dc));
-		DBG_ASSERT(qh<(1<<ndiv));
-	        uint16_t qhdc = (mul_5_5[dc][qh>>5] << 5) ^ mul_5_5[dc][qh&0x1f];
-		int nbits_qhdc = ndiv + nbits_dc -1;
-		DBG_ASSERT(qhdc < (1 << nbits_qhdc));
-
-		// Add qhdc to the remainder at the appropriate position
-		int ib_qhdc = ib_r - ((nbits_d-1) - jb_d) + (nbits_dc-1);
-		add_chunk(r_digits, ib_qhdc, nbits_qhdc, qhdc, ndigs_r);
-	    }
-	    DBG_ASSERT(extract_chunk(r_digits, ib_r, ndiv, ndigs_r) == 0);
 	}
     }
 
@@ -772,6 +1046,12 @@ PyMethodDef pygf2x_generic_functions[] =
         pygf2x_sqr,
         METH_VARARGS,
         "Square one integer as polynomial over GF(2)"
+    },
+    {
+        "inv",
+        pygf2x_inv,
+        METH_VARARGS,
+        "Multiplicative inverse of polynomial over GF(2)"
     },
     {
         NULL,                   // const char  *ml_name;  /* The name of the built-in function/method   */
