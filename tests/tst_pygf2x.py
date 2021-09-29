@@ -173,74 +173,80 @@ class test_mul(unittest.TestCase):
 class test_div(unittest.TestCase):
 
     @staticmethod
-    def model_inv(x):
-        x0 = x
+    def model_inv(d, ne):
+        nd = d.bit_length()
+        e = d
+        if ne > nd:
+            e <<= ne-nd
+        else:
+            e >>= nd-ne
         ibits = 1
-        nbits = x.bit_length()
-        for i in range(0,100):
-            #x = x*(gint(2) -a*x) >> 2*nbits-2
-            #x = x*((gint(1)<<(nbits-2)) + x*a) >> 2*(nbits-1)
-            #x = x*x*a >> 2*(nbits-1)
-            ibits = min(ibits<<1, nbits-1)
-            xi = x >> (nbits-ibits)
-            x = xi*xi*x0 >> 2*(ibits-1)
-            print(i+1,('%025x'%x)[0:(3*2**(i+1)+3)//4])
-            if ibits*2 >= nbits-1:
-                break
-        return x
+        while (ibits<<1) < ne-1:
+            ibits = min(ibits<<1, ne-1)
+            ei = e >> (ne-ibits)
+            e = ei*ei*d
+            shft = ne - (2*ibits+nd-2)
+            if shft > 0:
+                e <<= shft
+            else:
+                e >>= -shft
+        return e
 
     @staticmethod
     def model_div(u,d):
-        n = d.bit_length()
-        d_ = model_inv(x)
-        q  = (u*d_)>>n
-
-    
+        # TODO: untested!
+        nu = u.bit_length()
+        nd = d.bit_length()
+        ne = nu-nd+2
+        e = model_inv(d,ne)
+        q = (u*e) >> (ne+nd-2)
+        r = u-q*d
+        return q,r
 
     def test_type(self):
         with self.assertRaises(TypeError):
-            gf2.div(3.14,1)
+            gf2.divmod(3.14,1)
         with self.assertRaises(TypeError):
-            gf2.div(1,3.14)
+            gf2.divmod(1,3.14)
         with self.assertRaises(TypeError):
-            gf2.div(3.14,0)
+            gf2.divmod(3.14,0)
     
     def test_0_0(self):
         with self.assertRaises(ZeroDivisionError):
-            gf2.div(0,0)
+            gf2.divmod(0,0)
 
     def test_inv_0(self):
         with self.assertRaises(ZeroDivisionError):
-            gf2.div(1,0)
+            gf2.divmod(1,0)
         with self.assertRaises(ZeroDivisionError):
-            gf2.div(0x1a,0)
+            gf2.divmod(0x1a,0)
         with self.assertRaises(ZeroDivisionError):
-            gf2.div(1<<30,0)
+            gf2.divmod(1<<30,0)
 
     def test_neg(self):
         with self.assertRaises(ValueError):
-            gf2.div(-10,5)
+            gf2.divmod(-10,5)
         with self.assertRaises(ValueError):
-            gf2.div(10,-5)
+            gf2.divmod(10,-5)
         with self.assertRaises(ValueError):
-            gf2.div(-10,-5)
+            gf2.divmod(-10,-5)
             
     def test_0(self):
-        self.assertEqual(gf2.div(0,1),(0,0))
-        self.assertEqual(gf2.div(0,(1<<5)-1),(0,0))
-        self.assertEqual(gf2.div(0,(1<<15)-1),(0,0))
-        self.assertEqual(gf2.div(0,(1<<30)-1),(0,0))
-        self.assertEqual(gf2.div(0,(1<<60)-1),(0,0))
+        self.assertEqual(gf2.divmod(0,1),(0,0))
+        self.assertEqual(gf2.divmod(0,(1<<5)-1),(0,0))
+        self.assertEqual(gf2.divmod(0,(1<<15)-1),(0,0))
+        self.assertEqual(gf2.divmod(0,(1<<30)-1),(0,0))
+        self.assertEqual(gf2.divmod(0,(1<<60)-1),(0,0))
         
     def test_1(self):
-        self.assertEqual(gf2.div(10,1),(10,0))
-        self.assertEqual(gf2.div(1<<30,1),(1<<30,0))
-        self.assertEqual(gf2.div((1<<60)-1,1),((1<<60)-1,0))
+        self.assertEqual(gf2.divmod(10,1),(10,0))
+        self.assertEqual(gf2.divmod(1<<30,1),(1<<30,0))
+        self.assertEqual(gf2.divmod((1<<60)-1,1),((1<<60)-1,0))
 
     def test_5_5(self):
         for u in range(0,1<<5):
             for d in range(1,1<<5):
-                q,r = gf2.div(u,d)
+                q,r = gf2.divmod(u,d)
                 self.assertEqual(gf2.mul(q,d)^r,u,'divmod(%x,%x)'%(u,d))
                 self.assertTrue(r.bit_length() < d.bit_length(), 'u=%x d=%x'%(u,d))
                 
@@ -248,7 +254,7 @@ class test_div(unittest.TestCase):
         for n in range(0,100):
             u = randint(1<<5,(1<<15)-1)
             d = randint(1,(1<<5)-1)
-            q,r = gf2.div(u,d)
+            q,r = gf2.divmod(u,d)
             self.assertEqual(gf2.mul(q,d)^r,u,'divmod(%x,%x)'%(u,d))
             self.assertTrue(r.bit_length() < d.bit_length())
             
@@ -256,7 +262,7 @@ class test_div(unittest.TestCase):
         for n in range(0,100):
             u = randint(1<<15,(1<<30)-1)
             d = randint(1,(1<<5)-1)
-            q,r = gf2.div(u,d)
+            q,r = gf2.divmod(u,d)
             self.assertEqual(gf2.mul(q,d)^r,u,'divmod(%x,%x)'%(u,d))
             self.assertTrue(r.bit_length() < d.bit_length())
 
@@ -264,7 +270,7 @@ class test_div(unittest.TestCase):
         for n in range(0,100):
             u = randint(1<<30,(1<<60)-1)
             d = randint(1,(1<<5)-1)
-            q,r = gf2.div(u,d)
+            q,r = gf2.divmod(u,d)
             self.assertEqual(gf2.mul(q,d)^r,u,'divmod(%x,%x)'%(u,d))
             self.assertTrue(r.bit_length() < d.bit_length())
 
@@ -272,7 +278,7 @@ class test_div(unittest.TestCase):
         for n in range(0,100):
             u = randint(1<<5,(1<<15)-1)
             d = randint(1<<5,(1<<15)-1)
-            q,r = gf2.div(u,d)
+            q,r = gf2.divmod(u,d)
             self.assertEqual(gf2.mul(q,d)^r,u,'divmod(%x,%x)'%(u,d))
             self.assertTrue(r.bit_length() < d.bit_length())
 
@@ -280,7 +286,7 @@ class test_div(unittest.TestCase):
         for n in range(0,100):
             u = randint(1<<15,(1<<30)-1)
             d = randint(1<<5,(1<<15)-1)
-            q,r = gf2.div(u,d)
+            q,r = gf2.divmod(u,d)
             self.assertEqual(gf2.mul(q,d)^r,u,'divmod(%x,%x)'%(u,d))
             self.assertTrue(r.bit_length() < d.bit_length())
             
@@ -288,7 +294,7 @@ class test_div(unittest.TestCase):
         for n in range(0,100):
             u = randint(1<<30,(1<<60)-1)
             d = randint(1<<5,(1<<15)-1)
-            q,r = gf2.div(u,d)
+            q,r = gf2.divmod(u,d)
             self.assertEqual(gf2.mul(q,d)^r,u,'divmod(%x,%x)'%(u,d))
             self.assertTrue(r.bit_length() < d.bit_length())
             
@@ -296,7 +302,7 @@ class test_div(unittest.TestCase):
         for n in range(0,100):
             u = randint(1<<15,(1<<30)-1)
             d = randint(1<<15,(1<<30)-1)
-            q,r = gf2.div(u,d)
+            q,r = gf2.divmod(u,d)
             self.assertEqual(gf2.mul(q,d)^r,u,'divmod(%x,%x)'%(u,d))
             self.assertTrue(r.bit_length() < d.bit_length())
             
@@ -304,7 +310,7 @@ class test_div(unittest.TestCase):
         for n in range(0,100):
             u = randint(1<<30,(1<<60)-1)
             d = randint(1<<15,(1<<30)-1)
-            q,r = gf2.div(u,d)
+            q,r = gf2.divmod(u,d)
             self.assertEqual(gf2.mul(q,d)^r,u,'divmod(%x,%x)'%(u,d))
             self.assertTrue(r.bit_length() < d.bit_length())
 
@@ -312,7 +318,7 @@ class test_div(unittest.TestCase):
         for n in range(0,100):
             u = randint(1<<30,(1<<60)-1)
             d = randint(1<<30,(1<<60)-1)
-            q,r = gf2.div(u,d)
+            q,r = gf2.divmod(u,d)
             self.assertEqual(gf2.mul(q,d)^r,u,'divmod(%x,%x)'%(u,d))
             self.assertTrue(r.bit_length() < d.bit_length(), 'u=%x d=%x'%(u,d))
             
@@ -320,7 +326,7 @@ class test_div(unittest.TestCase):
         for n in range(0,100):
             u = randint(0,(1<<10000)-1)
             d = randint(1,(1<<100)-1)
-            q,r = gf2.div(u,d)
+            q,r = gf2.divmod(u,d)
             self.assertEqual(gf2.mul(q,d)^r,u,'divmod(%x,%x)'%(u,d))
             self.assertTrue(r.bit_length() < d.bit_length(),'divmod(\n%x,\n%x)\n%d,%d\n%x'%(u,d,r.bit_length(),d.bit_length(),r))
             
@@ -329,7 +335,7 @@ class test_div(unittest.TestCase):
             lu = uniform(0,10)
             u = int(10**lu)
             d = int(10**uniform(0,lu))
-            q,r = gf2.div(u,d)
+            q,r = gf2.divmod(u,d)
             self.assertEqual(gf2.mul(q,d)^r,u,'divmod(%x,%x)'%(u,d))
             self.assertTrue(r.bit_length() < d.bit_length())
 

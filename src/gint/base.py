@@ -39,12 +39,12 @@ class gint(int):
     def __truediv__(self,value):
         if not isinstance(value, gint):
             raise TypeError('Cannot divide gint with %s'%type(value))
-        return gint(pygf2x.div(self,value)[0])
+        return gint(pygf2x.divmod(self,value)[0])
 
     def __rtruediv__(self,value):
         if not isinstance(value, gint):
             raise TypeError('Cannot divide %s with gint'%type(value))
-        return gint(pygf2x.div(self,value)[0])
+        return gint(pygf2x.divmod(self,value)[0])
 
     def __floordiv__(self,value):
         raise TypeError("Don't use // with gint")
@@ -55,22 +55,22 @@ class gint(int):
     def __divmod__(self, value):
         if not isinstance(value, gint):
             raise TypeError('Cannot divmod gint with %s'%type(value))
-        return tuple(map(lambda x : gint(x), pygf2x.div(self,value)))
+        return tuple(map(lambda x : gint(x), pygf2x.divmod(self,value)))
 
     def __rdivmod__(self, value):
         if not isinstance(value, gint):
             raise TypeError('Cannot divmod %s with gint'%type(value))
-        return tuple(map(lambda x : gint(x), pygf2x.div(value,self)))
+        return tuple(map(lambda x : gint(x), pygf2x.divmod(value,self)))
 
     def __mod__(self, value):
         if not isinstance(value, gint):
             raise TypeError('Cannot modulo gint with %s'%type(value))
-        return gint(pygf2x.div(self,value)[1])
+        return gint(pygf2x.divmod(self,value)[1])
 
     def __rmod__(self, value):
         if not isinstance(value, gint):
             raise TypeError('Cannot modulo %s with gint'%type(value))
-        return gint(pygf2x.div(value,self)[1])
+        return gint(pygf2x.divmod(value,self)[1])
 
     def __add__(self,value):
         if not isinstance(value, gint):
@@ -169,25 +169,9 @@ class gint(int):
     @classmethod
     def from_bytes(value):
         return gint(int.from_bytes(value))
-    
-def main():
-    # Test
-    import random
-    n=gint(random.randint(0,10**213))
-    d=gint(random.randint(0,10**29))
-    fmt='%-20s=%-30X'
-    print(fmt%('n',n))
-    print(fmt%('d',d))
 
-    q,r = divmod(n,d)
-    print(fmt%('q',q))
-    print(fmt%('r',r))
-
-    p = q*d
-    print(fmt%('q*d',p))
-    print(fmt%('q*d+r',p+r))
-
-    print(p+r == n)
-
-if __name__ == '__main__':
-    main()
+def inv(x, nbits):
+    ''' Multiplicative inverse of x, with nbits precision, i.e. 
+    x*inv(x) = (1<<(x.bit_length()+nbits-2)) + r, where r.bit_length() < nbits
+    '''
+    return gint(pygf2x.inv(x, nbits))

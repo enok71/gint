@@ -23,6 +23,8 @@
 
 #define DEBUG_PYGF2X
 //#define DEBUG_PYGF2X_VERBOSE
+//#define DEBUG_FUNCTION if(strcmp(__func__,"inverse")==0)
+#define DEBUG_FUNCTION
 
 #ifdef DEBUG_PYGF2X
 #include <execinfo.h>
@@ -43,8 +45,8 @@ static void my_abort() {
 #endif
 
 #ifdef DEBUG_PYGF2X_VERBOSE
-#define DBG_PRINTF(...) printf(__VA_ARGS__)
-#define DBG_PRINTF_DIGITS(msg,digits,ndigs) { DBG_PRINTF(msg); for(int i=ndigs-1; i>=0; i--) DBG_PRINTF("%08x", digits[i]); DBG_PRINTF("\n"); }
+#define DBG_PRINTF(...) { DEBUG_FUNCTION printf(__VA_ARGS__); }
+#define DBG_PRINTF_DIGITS(msg,digits,ndigs) { DEBUG_FUNCTION { DBG_PRINTF(msg); for(int i=ndigs-1; i>=0; i--) DBG_PRINTF("%08x'", digits[i]); DBG_PRINTF("\n"); }; }
 #else
 #define DBG_PRINTF(...)
 #define DBG_PRINTF_DIGITS(...)
@@ -708,26 +710,39 @@ div_NDIVwise(digit * restrict q_digits,
 static void
 inverse(digit *restrict e_digits, int ndigs_e, int nbits_e,
 	const digit * restrict d_digits, int ndigs_d, int nbits_d)
+//
 // Compute inverse e to d such that
-// e*d == 1<<2*(nbits_e-1) + r
-// where d is the nbits_e most significant bits of d_digits
-// and nbits_r < nbits_e
+// e*d == (1 << (nbits_e + nbits_d -2)) + r
+// where nbits_r < nbits_d
+// nbits_e can be equal, smaller or bigger than nbits_d, allowing
+// an inverse with arbitrary accuracy
 //
 {
-    DBG_ASSERT(ndigs_e<=ndigs_d);
-    DBG_ASSERT(nbits_e<=nbits_d);
-
+    DBG_ASSERT(nbits_d>0);
+    DBG_ASSERT(ndigs_d==(nbits_d + (PyLong_SHIFT-1))/PyLong_SHIFT);
+    DBG_ASSERT(nbits_e>0);
+    DBG_ASSERT(ndigs_e==(nbits_e + (PyLong_SHIFT-1))/PyLong_SHIFT);
     DBG_PRINTF("inv: nbits_d=%d, nbits_e=%d\n", nbits_d, nbits_e);
+    DBG_PRINTF("inv: ndigs_d=%d, ndigs_e=%d\n", ndigs_d, ndigs_e);
+    DBG_PRINTF_DIGITS("d=", d_digits, ndigs_d);
+    
     // Shift the entire d to the left so that the most significant digit has most significant bit =1
+    // Truncate it, or fill it with zero, so that it has ndigs_e digits.
     digit d[ndigs_e];
-    const int shift = (PyLong_SHIFT-1) - (nbits_d + (PyLong_SHIFT-1))%PyLong_SHIFT;
-    for(int n=ndigs_d-1; n>ndigs_d-ndigs_e; n--) {
-	d[n-(ndigs_d-ndigs_e)] = ((d_digits[n]<<shift)&PyLong_MASK) | (d_digits[n-1]>>(PyLong_SHIFT-shift));
+    memset(d,0,sizeof(d));
+    {
+	const int shift = (PyLong_SHIFT-1) - (nbits_d + (PyLong_SHIFT-1))%PyLong_SHIFT;
+	int n0 = GF2X_MAX(0,ndigs_d-ndigs_e);
+	DBG_PRINTF("inv: shift=%d, n0=%d\n", shift, n0);
+	// Copy and shift all digits from d_digits that can fit into d
+	for(int n=ndigs_d-1; n>n0; n--) {
+	    d[n-(ndigs_d-ndigs_e)] = ((d_digits[n]<<shift)&PyLong_MASK) | (d_digits[n-1]>>(PyLong_SHIFT-shift));
+	}
+	d[n0-(ndigs_d-ndigs_e)] = (d_digits[n0] << shift) &PyLong_MASK;
+	if(n0 > 0)
+	    d[n0-(ndigs_d-ndigs_e)] |= d_digits[n0-1] >> (PyLong_SHIFT-shift);
+	DBG_PRINTF_DIGITS("d<<(ne-nd)=", d, ndigs_e);
     }
-    d[0] = (d_digits[ndigs_d-ndigs_e] << shift) &PyLong_MASK;
-    if(ndigs_d > ndigs_e)
-	d[0] |= d_digits[ndigs_d-ndigs_e-1] >> (PyLong_SHIFT-shift);
-
     if(nbits_e <= NDIV) {
 	// Compute the whole inverse using table
 	uint16_t dh = d[ndigs_e-1] >> (PyLong_SHIFT-nbits_e);
@@ -736,7 +751,9 @@ inverse(digit *restrict e_digits, int ndigs_e, int nbits_e,
 	DBG_ASSERT(e_digits[ndigs_e-1] < (1u<<nbits_e));
 	return;
     }
-    // Find initial approximation of inverse using table
+    //
+    // Find initial approximate inverse using table
+    //
     {
 	// Extract the highest chunk of denominator
 	uint16_t dh = d[ndigs_e-1] >> (PyLong_SHIFT-NDIV);
@@ -744,6 +761,7 @@ inverse(digit *restrict e_digits, int ndigs_e, int nbits_e,
 	DBG_ASSERT(e_digits[ndigs_e-1]<(1<<NDIV));
     }
     // e now contains NDIV correct bits
+    DBG_PRINTF_DIGITS("e=", e_digits, ndigs_e);
     //
     // Take the first Newton-step from 8 correct bits to 15
     //
@@ -762,6 +780,7 @@ inverse(digit *restrict e_digits, int ndigs_e, int nbits_e,
 	DBG_ASSERT(e_digits[ndigs_e-1]<(1<<15));
     }
     // e now contains 15 correct bits
+    DBG_PRINTF_DIGITS("e=", e_digits, ndigs_e);
 #if (PyLong_SHIFT == 30)
     //
     // Take next Newton-step from 15 correct bits to 30
@@ -782,6 +801,7 @@ inverse(digit *restrict e_digits, int ndigs_e, int nbits_e,
 	DBG_ASSERT(e_digits[ndigs_e-1]<(1<<30));
     }
     // e now contains 30 correct bits
+    DBG_PRINTF_DIGITS("e=", e_digits, ndigs_e);
 #endif
     // e now contains one full correct digit
 
@@ -790,20 +810,24 @@ inverse(digit *restrict e_digits, int ndigs_e, int nbits_e,
     // In each step the number of correct digits is doubled
     //
     int ncorrect;
-    for(ncorrect=1; ncorrect<(ndigs_e>>1); ncorrect<<=1) {
+    for(ncorrect=1; (ncorrect<<1)<ndigs_e; ncorrect<<=1) {
+	DBG_PRINTF("ncorrect=%d\n",ncorrect);
 	int n = ncorrect<<1;
 	digit x2[n];
 	memset(x2, 0, sizeof(x2));
 	square_n(x2, n, &e_digits[ndigs_e-ncorrect], ncorrect);
+	DBG_PRINTF_DIGITS("x2=", x2, n);
     
 	int nn = n<<1;
 	digit etmp[nn];
 	memset(etmp, 0, sizeof(etmp));
 	mul_nl_nr(etmp, &d[ndigs_e-n], n, x2, n);
+	DBG_PRINTF_DIGITS("etmp=", etmp, nn);
 
 	// Discard lowest 2*(PyLong_SHIFT*n-1) bits of etmp
 	for(int i=1; i<=n; i++)
-	    e_digits[ndigs_e-i] = (etmp[nn-i] << 2) | (etmp[nn-1-i] >> (PyLong_SHIFT-2));
+	    e_digits[ndigs_e-i] = ((etmp[nn-i] << 2) &PyLong_MASK) | (etmp[nn-1-i] >> (PyLong_SHIFT-2));
+	DBG_PRINTF_DIGITS("e=", e_digits, ndigs_e);
     }
     // e_digits now contains <ncorrect> correct digits
     
@@ -811,22 +835,32 @@ inverse(digit *restrict e_digits, int ndigs_e, int nbits_e,
     // Last Newton-step
     //
     {
+	DBG_PRINTF("ncorrect=%d\n",ncorrect);
 	int n = ncorrect<<1;
 	digit x2[n];
 	memset(x2, 0, sizeof(x2));
 	square_n(x2, n, &e_digits[ndigs_e-ncorrect], ncorrect);
+	DBG_PRINTF_DIGITS("x2=", x2, n);
+	DBG_PRINTF_DIGITS("d0=", d, ndigs_e);
     
-	int nn = n<<1;
+	int nn = ndigs_e<<1;
 	digit etmp[nn];
 	memset(etmp, 0, sizeof(etmp));
-	mul_nl_nr(etmp, &d[0], ndigs_e, x2, n);
+	mul_nl_nr(etmp, d, ndigs_e, &x2[n-ndigs_e], ndigs_e);
+	DBG_PRINTF_DIGITS("etmp=", etmp, nn);
 
 	// Discard all but the ndigs_e*PyLong_SHIFT-shift significant bits
 	for(int i=1; i<=ndigs_e; i++)
-	    e_digits[ndigs_e-i] = (etmp[nn-i] << 2) | (etmp[nn-1-i] >> (PyLong_SHIFT-2));
+	    e_digits[ndigs_e-i] = ((etmp[nn-i] << 2) &PyLong_MASK) | (etmp[nn-1-i] >> (PyLong_SHIFT-2));
+	DBG_PRINTF_DIGITS("e=", e_digits, ndigs_e);
+
+	const int shift = (PyLong_SHIFT-1) - (nbits_e -1)%PyLong_SHIFT;
+
+	// Shift back to e_digits
 	for(int i=0; i<ndigs_e-1; i++)
 	    e_digits[i] = (e_digits[i]>>shift) | ((e_digits[i+1]<<(PyLong_SHIFT-shift)) &PyLong_MASK);
 	e_digits[ndigs_e-1] = e_digits[ndigs_e-1]>>shift;
+	DBG_PRINTF_DIGITS("e=", e_digits, ndigs_e);
     }
     return;
 }
@@ -837,34 +871,43 @@ pygf2x_inv(PyObject *self, PyObject *args) {
     // Multiplicative inverse of one Python integer, interpreted as polynomial over GF(2)
     (void)self;
 
+    int nbits_e;
     PyLongObject *d;
-    if (!PyArg_ParseTuple(args, "O", &d)) {
+    if (!PyArg_ParseTuple(args, "Oi", &d, &nbits_e)) {
         PyErr_SetString(PyExc_TypeError, "Failed to parse arguments");
         return NULL;
     }
 
     if( ! PyLong_Check(d) ) {
-        PyErr_SetString(PyExc_TypeError, "Arguments must be integer");
+        PyErr_SetString(PyExc_TypeError, "Argument must be integer");
         return NULL;
     }
-    if(((PyVarObject *)d)->ob_size < 0) {
-        PyErr_SetString(PyExc_ValueError, "Argument must be non-negative");
+    if(((PyVarObject *)d)->ob_size <= 0) {
+        PyErr_SetString(PyExc_ValueError, "Argument must be positive");
         return NULL;
     }
-
+    if(nbits_e <= 0 || nbits_e > ((1<<16)-1)) {
+        PyErr_SetString(PyExc_ValueError, "Requested bit_length of inverse is out of range");
+        return NULL;
+    }
+    
     int nbits_d = nbits(d);
-    int ndigs_d = ((PyVarObject *)d)->ob_size;
+    int ndigs_d = (nbits_d + (PyLong_SHIFT-1))/PyLong_SHIFT;
 
-    PyLongObject *e = _PyLong_New(ndigs_d);
-    memset(e->ob_digit, 0, ndigs_d*sizeof(digit));
+    int ndigs_e = (nbits_e + (PyLong_SHIFT-1))/PyLong_SHIFT;
+    DBG_PRINTF("ndigs_e          = %-4d\n",ndigs_e);
+    
+    PyLongObject *e = _PyLong_New(ndigs_e);
+    memset(e->ob_digit, 0, ndigs_e*sizeof(digit));
     
     DBG_PRINTF("Bits per digit   = %-4d\n",PyLong_SHIFT);
     DBG_PRINTF("Denominator bits = %-4d\n",nbits_d);
+    DBG_PRINTF("Requested bits   = %-4d\n",nbits_e);
 
-    inverse(e->ob_digit, ndigs_d, nbits_d,
+    inverse(e->ob_digit, ndigs_e, nbits_e,
 	    d->ob_digit, ndigs_d, nbits_d);
 
-    DBG_PRINTF_DIGITS("Inverse:", e->ob_digit, ndigs_d);
+    DBG_PRINTF_DIGITS("Inverse:", e->ob_digit, ndigs_e);
 
     return (PyObject *)e;
 }
@@ -892,7 +935,7 @@ static void rshift(digit digits[], int ndigs, int nb_shift)
 }
 
 static PyObject *
-pygf2x_div(PyObject *self, PyObject *args)
+pygf2x_divmod(PyObject *self, PyObject *args)
 // Divide two Python integers, interpreted as polynomials over GF(2)
 // Return quotient and remainder
 {
@@ -967,20 +1010,28 @@ pygf2x_div(PyObject *self, PyObject *args)
 	} else {
 	    /*
 	     *   u = q*d + r
-	     * Let e be an approximation of inv(d) with ne binary digits, i.e.:
-	     *   d*e = (1<<(ne+nd-2)) + re
-	     * where nbits(re) = nd+ne-1 - (ne-1) = nd
-	     * and nbits(q) = nu-nd+1
+	     * Let nx denote nbits(x), then
+	     *   nu = nq+nd-1
+	     *   nr <= nd-1
+	     * assuming nu >= nd
+	     *
+	     * Let e be an approximate inverse inv(d) with ne correct binary digits, i.e.:
+	     *   d*e = (1<<(ne+nd-2)) + f
+	     * where nf <= nd-1. Then:
 	     *   u*e = q*d*e + r*e
-	     *   u*e = q*( (1<<(ne+nd-2)) + re ) + r*e
-	     * Eliminate r*e by discarding nbits(r*e) bits = nd+ne-2 bits:
-	     *   u*e >> (nd+ne-2) = q*( (1<<(ne+nd-2)) + re ) >> (nd+ne-2)
-	     * nbits(q*re) = (nu-nd+1)+nd-1 = nu so remaining bits
-	     * are nu-(nd+ne-2). If this is <0 we are done i.e.
-	     *   nu < nd+ne-2
-	     * otherwise ...?
+	     *   u*e = q*( (1<<(ne+nd-2)) + f ) + r*e
+	     * Right shift (ne+nd-2) to recover q:
+	     *   (u*e)>>(ne+nd-2) = q + (q*f)>>(ne+nd-2) + (r*e)>>(ne+nd-2)
+	     * The rightmost term vanishes because nbits(r*e)= nr+ne-1 <= nd-1+ne-1 = ne+nd-2
+	     * The bitlength of the term (q*f)>>(ne+nd-2) is
+	     *   nq+nf-1 - (ne+nd-2) <= (nu-nd+1) + (nd-1) - (ne+nd-2) = nu - (ne+nd-2)
+	     * Thus if nu - (ne+nd-2) <= 0 then we have a correct q, i.e. if
+	     *   ne >= nu-nd +2
+	     * otherwise the n.o. correct digits of q is
+	     *   (nu-nd+1) - (nu - (ne+nd-2)) = 1+ne-2 = ne-1
 	     */
-	    int nbits_e = GF2X_MIN(nbits_u - nbits_d +1, nbits_d);
+
+	    int nbits_e = nbits_u - nbits_d +2;  // Just take one step in the Euclidean division loop below
 	    int ndigs_e = (nbits_e + (PyLong_SHIFT-1))/PyLong_SHIFT;
 
 	    digit e[ndigs_e];
@@ -990,7 +1041,8 @@ pygf2x_div(PyObject *self, PyObject *args)
 	    DBG_PRINTF_DIGITS("inverse          :",e,ndigs_e);
 
 	    DBG_PRINTF("ndigs_e=%d, ndigs_u=%d, ndigs_q=%d\n",ndigs_e,ndigs_u,ndigs_q);
-	    for(int nbits_ri=nbits_r;nbits_ri>=nbits_d; nbits_ri -= nbits_e-1) {
+	    for(int nbits_ri=nbits_r; nbits_ri>=nbits_d; nbits_ri -= nbits_e-1) {
+		// Improve the n.o. correct bits by nbits_e-1 for each loop step
 		int ndigs_ri = (nbits_ri + (PyLong_SHIFT-1))/PyLong_SHIFT;
 		digit qtmp[ndigs_e + ndigs_ri];
 		memset(qtmp, 0, sizeof(qtmp));
@@ -999,6 +1051,7 @@ pygf2x_div(PyObject *self, PyObject *args)
 		// So shift (nbits_e + nbits_d -2) bits right
 		rshift(qtmp, ndigs_e + ndigs_ri, nbits_e + nbits_d -2);
 		DBG_PRINTF_DIGITS("qtmp             :",qtmp,ndigs_e+ndigs_ri);
+		
 		int ndigs_qtmp = (nbits_ri + PyLong_SHIFT - nbits_d)/PyLong_SHIFT;
 		for(int i=0; i<ndigs_qtmp; i++)
 		    q_digits[i] ^= qtmp[i];
@@ -1030,8 +1083,8 @@ pygf2x_div(PyObject *self, PyObject *args)
 PyMethodDef pygf2x_generic_functions[] =
 {
     {
-        "div",
-        pygf2x_div,
+        "divmod",
+        pygf2x_divmod,
         METH_VARARGS,
         "Divide two integers as polynomials over GF(2) (returns quotient and remainder)"
     },
@@ -1051,7 +1104,7 @@ PyMethodDef pygf2x_generic_functions[] =
         "inv",
         pygf2x_inv,
         METH_VARARGS,
-        "Multiplicative inverse of polynomial over GF(2)"
+        "Multiplicative inverse of integer as polynomial over GF(2), with given precision"
     },
     {
         NULL,                   // const char  *ml_name;  /* The name of the built-in function/method   */
