@@ -175,3 +175,9 @@ def inv(x, nbits):
     x*inv(x) = (1<<(x.bit_length()+nbits-2)) + r, where r.bit_length() < nbits
     '''
     return gint(pygf2x.inv(x, nbits))
+
+def rinv(x, nbits):
+    ''' Multiplicative inverse of x, with nbits precision, i.e. 
+    x*inv(x) = (r<<(nbits-1)) + 1, where r.bit_length() < nbits
+    '''
+    return gint(pygf2x.rinv(x, nbits))

@@ -193,6 +193,21 @@ class test_div(unittest.TestCase):
         return e
 
     @staticmethod
+    def model_rinv(d, ne):
+        nd = d.bit_length()
+        ne_mask = (1<<ne)-1
+        e = d
+        e &= ne_mask
+        ibits = 1
+        while (ibits<<1) < ne-1:
+            ibits = min(ibits<<1, ne-1)
+            ei = e & ((1<<ibits)-1)
+            e = ei*ei*d
+            e &= ne_mask
+
+        return e
+    
+    @staticmethod
     def model_div(u,d):
         # TODO: untested!
         nu = u.bit_length()
