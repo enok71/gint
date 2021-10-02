@@ -21,10 +21,20 @@
 #include <mmintrin.h>
 #endif
 
+// Define to enable DBG_ASSERT checks
 #define DEBUG_PYGF2X
+
+// Define to enable DBG_PRINTF and DBG_PRINTF_DIGITS printouts
 //#define DEBUG_PYGF2X_VERBOSE
-//#define DEBUG_FUNCTION if(strcmp(__func__,"inverse")==0)
-#define DEBUG_FUNCTION
+
+// Define to restrict DBG_PRINTF and DBG_PRINTF_DIGITS printouts to a specific function
+//#define DEBUG_PYGF2X_VERBOSE_FUNCTION "rinverse"
+
+#ifdef DEBUG_PYGF2X_VERBOSE_FUNCTION
+#define DEBUG_PYGF2X_COND if(strcmp(__func__,DEBUG_PYGF2X_VERBOSE_FUNCTION)==0)
+#else
+#define DEBUG_PYGF2X_COND
+#endif
 
 #ifdef DEBUG_PYGF2X
 #include <execinfo.h>
@@ -45,8 +55,8 @@ static void my_abort() {
 #endif
 
 #ifdef DEBUG_PYGF2X_VERBOSE
-#define DBG_PRINTF(...) { DEBUG_FUNCTION printf(__VA_ARGS__); }
-#define DBG_PRINTF_DIGITS(msg,digits,ndigs) { DEBUG_FUNCTION { DBG_PRINTF(msg); for(int i=ndigs-1; i>=0; i--) DBG_PRINTF("%08x'", digits[i]); DBG_PRINTF("\n"); }; }
+#define DBG_PRINTF(...) { DEBUG_PYGF2X_COND printf(__VA_ARGS__); }
+#define DBG_PRINTF_DIGITS(msg,digits,ndigs) { DEBUG_PYGF2X_COND { DBG_PRINTF(msg); for(int i=(ndigs)-1; i>=0; i--) DBG_PRINTF("%08x'", (digits)[i]); DBG_PRINTF("\n"); }; }
 #else
 #define DBG_PRINTF(...)
 #define DBG_PRINTF_DIGITS(...)
