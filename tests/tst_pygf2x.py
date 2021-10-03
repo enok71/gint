@@ -169,9 +169,7 @@ class test_mul(unittest.TestCase):
             self.assertEqual(gf2.mul(l,r),self.model_mul(l,r))
 
 
-
-class test_div(unittest.TestCase):
-
+class test_inv(unittest.TestCase):
     @staticmethod
     def model_inv(d, ne):
         nd = d.bit_length()
@@ -181,7 +179,7 @@ class test_div(unittest.TestCase):
         else:
             e >>= nd-ne
         ibits = 1
-        while (ibits<<1) < ne-1:
+        while ibits < ne-1:
             ibits = min(ibits<<1, ne-1)
             ei = e >> (ne-ibits)
             e = ei*ei*d
@@ -191,6 +189,77 @@ class test_div(unittest.TestCase):
             else:
                 e >>= -shft
         return e
+
+    def test_type(self):
+        with self.assertRaises(TypeError):
+            gf2.inv(3.14,1)
+        with self.assertRaises(TypeError):
+            gf2.divmod(0.0,1)
+        with self.assertRaises(TypeError):
+            gf2.divmod(1,1.5)
+    
+    def test_0(self):
+        with self.assertRaises(ZeroDivisionError):
+            gf2.inv(0,1)
+        with self.assertRaises(ValueError):
+            gf2.inv(1,0)
+        with self.assertRaises(ValueError):
+            gf2.inv(1,-1)
+        with self.assertRaises(ValueError):
+            gf2.inv(-1,1)
+
+    def test_1(self):
+        self.assertEqual(gf2.inv(1,1),1)
+
+    def test_small(self):
+        for i in range(1,1024):
+            i = gi(i)
+            ni = i.bit_length()
+            self.assertEqual((gi(gf2.inv(i,ni))*i)>>(ni-1), 1<<(ni-1))
+            self.assertEqual(gf2.inv(i,ni),self.model_inv(i,ni))
+
+    def test_model(self):
+        for i in range(1,10):
+            i = gi(randint(1<<(i-1),(1<<i)-1))
+            ni = i.bit_length()
+            ne = randint(1,10)
+            self.assertEqual((gi(self.model_inv(i,ne))*i)>>(ni-1), 1<<(ne-1))
+        
+    def test_small_coarse(self):
+        for i in range(1,1024):
+            i = gi(i)
+            ni = i.bit_length()
+            ne = max(ni-1,1)
+            self.assertEqual((gi(gf2.inv(i,ne))*i)>>(ni-1), 1<<(ne-1))
+            ne = max(ni//2,1)
+            self.assertEqual((gi(gf2.inv(i,ne))*i)>>(ni-1), 1<<(ne-1))
+            ne = 1
+            self.assertEqual((gi(gf2.inv(i,ne))*i)>>(ni-1), 1<<(ne-1))
+
+    def test_small_fine(self):
+        for i in range(1,1024):
+            i = gi(i)
+            ni = i.bit_length()
+            ne = ni+1
+            self.assertEqual((gi(gf2.inv(i,ne))*i)>>(ni-1), 1<<(ne-1))
+            ne = ni*2
+            self.assertEqual((gi(gf2.inv(i,ne))*i)>>(ni-1), 1<<(ne-1))
+            ne = ni*5+3
+            self.assertEqual((gi(gf2.inv(i,ne))*i)>>(ni-1), 1<<(ne-1))
+
+    def test_big(self):
+        for i in range(1,1024):
+            i = gi(randint(1<<(i-1),(1<<i)-1))
+            ni = i.bit_length()
+            ne = ni
+            self.assertEqual((gi(gf2.inv(i,ne))*i)>>(ni-1), 1<<(ne-1))
+            ne = max(ni-1,1)
+            self.assertEqual((gi(gf2.inv(i,ne))*i)>>(ni-1), 1<<(ne-1))
+            ne = ni+1
+            self.assertEqual((gi(gf2.inv(i,ne))*i)>>(ni-1), 1<<(ne-1))
+            
+
+class test_div(unittest.TestCase):
 
     @staticmethod
     def model_rinv(d, ne):

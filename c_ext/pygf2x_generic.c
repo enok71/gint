@@ -991,7 +991,11 @@ pygf2x_inv(PyObject *self, PyObject *args) {
         PyErr_SetString(PyExc_TypeError, "Argument must be integer");
         return NULL;
     }
-    if(((PyVarObject *)d)->ob_size <= 0) {
+    if(((PyVarObject *)d)->ob_size == 0) {
+        PyErr_SetString(PyExc_ZeroDivisionError, "Inverse of zero is undefined");
+        return NULL;
+    }
+    if(((PyVarObject *)d)->ob_size < 0) {
         PyErr_SetString(PyExc_ValueError, "Argument must be positive");
         return NULL;
     }
