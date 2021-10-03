@@ -330,6 +330,79 @@ mul_30_30(uint32_t l, uint32_t r)
 #endif
 }
 
+static void mul_5_nr(digit * restrict const p,
+		     uint8_t l,
+		     const digit * restrict const r0, int nr)
+{
+#if (PyLong_SHIFT == 15)
+    for(int id_r=0; id_r<nr; id_r++) {
+	uint16_t ri = r0[id_r];
+	uint16_t pi_0 = mul_5_5[l][ri&0x1f];
+	ri >>= 5;
+	uint16_t pi_1 = mul_5_5[l][ri&0x1f];
+	ri >>= 5;
+	uint16_t pi_2 = mul_5_5[l][ri&0x1f];
+	p[id_r] ^= ((((pi_2 << 5) ^ pi_1) << 5) ^ pi_0) & PyLong_MASK;
+	p[id_r+1] ^= pi_2) >> 5;
+    }
+#else // PyLong_SHIFT == 30
+    for(int id_r=0; id_r<nr; id_r++) {
+	uint32_t ri = r0[id_r];
+	uint16_t pi_0 = mul_5_5[l][ri&0x1f];
+	ri >>= 5;
+	uint16_t pi_1 = mul_5_5[l][ri&0x1f];
+	ri >>= 5;
+	uint16_t pi_2 = mul_5_5[l][ri&0x1f];
+	ri >>= 5;
+	uint16_t pi_3 = mul_5_5[l][ri&0x1f];
+	ri >>= 5;
+	uint16_t pi_4 = mul_5_5[l][ri&0x1f];
+	ri >>= 5;
+	uint16_t pi_5 = mul_5_5[l][ri&0x1f];
+	p[id_r] ^= ((((((((((pi_5 << 5) ^ pi_4) << 5) ^ pi_3) << 5) ^ pi_2) << 5) ^ pi_1) << 5) ^ pi_0) & PyLong_MASK;
+	p[id_r+1] ^= pi_5 >> 5;
+    }
+#endif
+}
+
+static void mul_15_nr(digit * restrict const p,
+		      uint16_t l,
+		      const digit * restrict const r0, int nr)
+{
+    for(int id_r=0; id_r<nr; id_r++) {
+#if (PyLong_SHIFT == 15)
+	uint32_t pi = mul_15_15(l, r0[id_r]);
+	p[id_r] ^= (pi & PyLong_MASK);
+	p[id_r+1] ^= (pi >> PyLong_SHIFT);
+#elif PyLong_SHIFT == 30
+	uint16_t ri_0 = r0[id_r]&0x7fff;
+	uint16_t ri_1 = r0[id_r]>>15;
+	uint32_t pi_0 = mul_15_15(l, ri_0);
+	uint32_t pi_1 = mul_15_15(l, ri_1);
+	p[id_r] ^= pi_0 ^ ((pi_1 & ((1<<15)-1))<<15);
+	p[id_r+1] ^= (pi_1 >> 15);
+#else
+#error
+#endif
+    }
+}
+
+static void mul_digit_nr(digit * restrict const p,
+			 digit l,
+		      const digit * restrict const r0, int nr)
+{
+    for(int id_r=0; id_r<nr; id_r++) {
+#if (PyLong_SHIFT == 15)
+	twodigits pi = mul_15_15(l, r0[id_r]);
+#elif PyLong_SHIFT == 30
+	twodigits pi = mul_30_30(l, r0[id_r]);
+#else
+#error
+#endif
+	p[id_r] ^= (pi & PyLong_MASK);
+	p[id_r+1] ^= (pi >> PyLong_SHIFT);
+    }
+}
 
 static void
 mul_60_60(uint64_t p[2], uint64_t l, uint64_t r)
@@ -439,35 +512,25 @@ static void mul_nl_nr(digit * restrict const p,
     if(nl == 1) {
 	// Stop recursing
 	DBG_PRINTF("%-2d:[0,%d],[0,%d]\n",depth,nl,nr);
-	digit ld = l0[0];
-	for(int id_r=0; id_r<nr; id_r++) {
-	    digit rd = r0[id_r];
-#if (PyLong_SHIFT == 15)
-	    twodigits pc = mul_15_15(ld,rd);
-#elif (PyLong_SHIFT == 30)		
-	    twodigits pc = mul_30_30(ld,rd);
-#else
-#error
+	if(l0[0]<(1<<5))
+	    mul_5_nr(p, l0[0], r0, nr);
+#if (PyLong_SHIFT == 30)
+	else if(l0[0]<(1<<15))
+	    mul_15_nr(p, l0[0], r0, nr);
 #endif
-	    p[id_r  ] ^= (digit)pc & PyLong_MASK;
-	    p[id_r+1] ^= pc >> PyLong_SHIFT;
-	}
+	else
+	    mul_digit_nr(p, l0[0], r0, nr);
     } else if(nr == 1) {
 	// Stop recursing
 	DBG_PRINTF("%-2d:[0,%d],[0,%d]\n",depth,nl,nr);
-	digit rd = r0[0];
-	for(int id_l=0; id_l<nl; id_l++) {
-	    digit ld = l0[id_l];
-#if (PyLong_SHIFT == 15)
-	    twodigits pc = mul_15_15(ld,rd);
-#elif (PyLong_SHIFT == 30)		
-	    twodigits pc = mul_30_30(ld,rd);
-#else
-#error
+	if(r0[0]<(1<<5))
+	    mul_5_nr(p, r0[0], l0, nl);
+#if (PyLong_SHIFT == 30)
+	else if(r0[0]<(1<<15))
+	    mul_15_nr(p, r0[0], l0, nl);
 #endif
-	    p[id_l  ] ^= (digit)pc & PyLong_MASK;
-	    p[id_l+1] ^= pc >> PyLong_SHIFT;
-	}
+	else
+	    mul_digit_nr(p, r0[0], l0, nl);
     } else if(nl > 2*nr) {
     // Divide l to form more equal sized pieces
 	int nc = nl/nr; // Number of chunks
