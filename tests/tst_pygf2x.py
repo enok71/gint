@@ -277,15 +277,58 @@ class test_div(unittest.TestCase):
         return e
     
     @staticmethod
-    def model_div(u,d):
-        # TODO: untested!
-        nu = u.bit_length()
+    def model_divmod(u, d):
         nd = d.bit_length()
-        ne = nu-nd+2
-        e = model_inv(d,ne)
-        q = (u*e) >> (ne+nd-2)
-        r = u-q*d
-        return q,r
+        nu = u.bit_length()
+        u = gi(u)
+        d = gi(d)
+        if nd == 0:
+            raise ZeroDivisionError()
+        if nu == 0:
+            return (gi(0), gi(0))
+        if nd == 1:
+            return (u, gi(0))
+        if nu < nd:
+            return (gi(0), u)
+        if nu == nd:
+            return (gi(1), u^d)
+        #
+        # We know now that nu>nd>1
+        #
+        nq = nu - nd +1
+        #
+        # Choose which inverse accuracy to compute
+        # 2 <= ne <= nq+1
+        # If ne == nq+1 then the whole division is done in just one step
+        # 
+        #
+        ne = min(nq+1,nd)
+        nr = nu
+        r = u
+        q = gi(0)
+        e = test_inv.model_inv(d,ne)
+        while nr >= nd + ne:
+            #
+            # Improve q with ne bits each iteration
+            #
+            dq = ((r >> (nr-ne)) *e) >> (ne-1)      # |dq| = ne
+            nqi = nr - nd - (ne-1)                  # |q_i| - |dq|
+            q ^= dq << nqi                          # Shift in place for q
+            r ^= (dq*d) << nqi                      # Shift in place for r
+            nr -= ne
+            assert r.bit_length()<=nr
+        #
+        # Take last step
+        #
+        m = nr - nd + 1                             # m = |dq|
+        dq = ((r >> (nr-m))*(e >> (ne-m))) >> (m-1) # |dq| = m
+        q ^= dq
+        r ^= (dq*d)
+        nr -= m
+        assert nr == nd-1
+        assert r.bit_length()<=nr
+
+        return (q,r)
 
     def test_type(self):
         with self.assertRaises(TypeError):

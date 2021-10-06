@@ -28,7 +28,7 @@
 //#define DEBUG_PYGF2X_VERBOSE
 
 // Define to restrict DBG_PRINTF and DBG_PRINTF_DIGITS printouts to a specific function
-//#define DEBUG_PYGF2X_VERBOSE_FUNCTION "rinverse"
+//#define DEBUG_PYGF2X_VERBOSE_FUNCTION "pygf2x_divmod"
 
 #ifdef DEBUG_PYGF2X_VERBOSE_FUNCTION
 #define DEBUG_PYGF2X_COND if(strcmp(__func__,DEBUG_PYGF2X_VERBOSE_FUNCTION)==0)
@@ -69,6 +69,16 @@ static void my_abort() {
 #define LIMIT_DIV_EUCLID 0
 #define NDIV 10
 #define inv_NDIV inv_10
+
+#if PyLong_SHIFT==15
+#define mul_digit_digit(l, r) mul_15_15(l, r)
+#define mul_digit_nr(p, l, r, nr) mul_15_nr(p, l, r, nr)
+#elif PyLong_SHIFT==30
+#define mul_digit_digit(l, r) mul_30_30(l, r)
+#define mul_digit_nr(p, l, r, nr) mul_30_nr(p, l, r, nr)
+#else
+#error
+#endif
 
 // Squares up to 255x255 (8-bit chunk size)
 static const uint16_t sqr_8[256] = {
@@ -387,21 +397,24 @@ static void mul_15_nr(digit * restrict const p,
     }
 }
 
-static void mul_digit_nr(digit * restrict const p,
-			 digit l,
+static void mul_30_nr(digit * restrict const p,
+		      uint32_t l,
 		      const digit * restrict const r0, int nr)
 {
-    for(int id_r=0; id_r<nr; id_r++) {
 #if (PyLong_SHIFT == 15)
-	twodigits pi = mul_15_15(l, r0[id_r]);
+    digit l0 = l & PyLong_MASK;
+    mul_15_nr(p, l0, r0, nr);
+    digit l1 = (l >> PyLong_SHIFT) & PyLong_MASK;
+    mul_15_nr(p+1, l1, r0, nr);
 #elif PyLong_SHIFT == 30
+    for(int id_r=0; id_r<nr; id_r++) {
 	twodigits pi = mul_30_30(l, r0[id_r]);
-#else
-#error
-#endif
 	p[id_r] ^= (pi & PyLong_MASK);
 	p[id_r+1] ^= (pi >> PyLong_SHIFT);
     }
+#else
+#error
+#endif
 }
 
 static void
@@ -1333,59 +1346,131 @@ pygf2x_divmod(PyObject *self, PyObject *args)
 	    /*
 	     *   u = q*d + r
 	     * Let nx denote nbits(x), then
-	     *   nu = nq+nd-1
-	     *   nr <= nd-1
-	     * assuming nu >= nd
+	     *   |u| = |q|+|d|-1
+	     *   |r| <= |d|-1
+	     * assuming |u| >= |d|
 	     *
-	     * Let e be an approximate inverse inv(d) with ne correct binary digits, i.e.:
-	     *   d*e = (1<<(ne+nd-2)) + f
-	     * where nf <= nd-1. Then:
+	     * Let e be an approximate inverse inv(d) with |e| correct binary digits, i.e.:
+	     *   d*e = (1<<(|e|+|d|-2)) + f
+	     * where |f| <= |d|-1. Then:
 	     *   u*e = q*d*e + r*e
-	     *       = q*( (1<<(ne+nd-2)) + f ) + r*e
-	     * Right shift (ne+nd-2) to recover q:
-	     *   (u*e)>>(ne+nd-2) = q + (q*f)>>(ne+nd-2) + (r*e)>>(ne+nd-2)
-	     * The rightmost term vanishes because nbits(r*e)= nr+ne-1 <= nd-1+ne-1 = ne+nd-2
-	     * The bitlength of the term (q*f)>>(ne+nd-2) is
-	     *   nq+nf-1 - (ne+nd-2) <= (nu-nd+1) + (nd-1) - (ne+nd-2) = nu - (ne+nd-2)
-	     * Thus if nu - (ne+nd-2) <= 0 then we have a correct q, i.e. if
-	     *   ne >= nu-nd +2
-	     * otherwise the n.o. correct digits of q is
-	     *   (nu-nd+1) - (nu - (ne+nd-2)) = 1+ne-2 = ne-1
-	     *
+	     *       = q*( (1<<(|e|+|d|-2)) + f ) + r*e
+	     * Right shift (|e|+|d|-2) to recover q:
+	     *   (u*e)>>(|e|+|d|-2) = q + (q*f)>>(|e|+|d|-2) + (r*e)>>(|e|+|d|-2)
+	     * The rightmost term vanishes because |r*e|= |r|+|e|-1 <= |d|-1+|e|-1 = |e|+|d|-2
+	     * The bitlength of the term (q*f)>>(|e|+|d|-2) is
+	     *   |q|+|f|-1 - (|e|+|d|-2) <= |q| + (|d|-1) -1 - (|e|+|d|-2) = |q| - |e|
+	     * Thus if |e| >= |q| then we have a correct q
+	     * So if the inverse is computed with this accuracy then q can computed in one step with
+	     *   q = (u*e) >> (|e|+|d|-2)
+	     * If a less accurate e is computed then the n.o. correct digits of q is |e|
+	     * If |e|<=|d| then q can then be computed in a finite number of steps:
+	     *   r_0 = u
+	     *   e = inv(d,|e|), where |e|<=|d|
+	     *   while |r_i| >= |d|
+	     *     dq_i = ((r_i >> (|r_i|-|e|)) * e) >> |e|-1
+	     *     shft = |r_i| - |d| - (|e|-1))
+	     *     q_{i+1} = q_i + (dq_i << shft)
+	     *     r_{i+1} = r_i - ((dq_i * e) << shft)
+	     * Note that only the |e| most significant bits of r_i needs to be multiplied with e in
+	     * each step above.
 	     */
-
-	    // Just take one step in the Euclidean division loop below
-	    int nbits_e = nbits_u - nbits_d +2;
+	    
+	    // Choose accuracy of inverse to compute:
+	    // If nbits_d >= nbits_q just compute q with one single step in the Euclidean division loop below
+	    // Otherwise take multiple steps, each of size nbits_d or less
+	    int nbits_e = GF2X_MIN(nbits_q +1, nbits_d);
+	    // Round up to nearest digit size
 	    int ndigs_e = (nbits_e + (PyLong_SHIFT-1))/PyLong_SHIFT;
+	    nbits_e = PyLong_SHIFT*ndigs_e;
 
+	    // Compute the inverse e = (d)^-1
 	    digit e[ndigs_e];
 	    memset(e, 0, sizeof(e));
 	    inverse(e, ndigs_e, nbits_e,
 		    denominator->ob_digit, ndigs_d, nbits_d);
 	    DBG_PRINTF_DIGITS("inverse          :",e,ndigs_e);
 
-	    DBG_PRINTF("ndigs_e=%d, ndigs_u=%d, ndigs_q=%d\n",ndigs_e,ndigs_u,ndigs_q);
-	    for(int nbits_ri=nbits_r; nbits_ri>=nbits_d; nbits_ri -= nbits_e-1) {
-		// Improve the n.o. correct bits by nbits_e-1 for each loop step
-		int ndigs_ri = (nbits_ri + (PyLong_SHIFT-1))/PyLong_SHIFT;
-		digit qtmp[ndigs_e + ndigs_ri];
-		memset(qtmp, 0, sizeof(qtmp));
-		mul_nl_nr(qtmp, e, ndigs_e, r_digits, ndigs_ri);
-		// qtmp is now nbits_e + nbits_ri -1 bits. We just want the nbits_ri - nbits_d +1 most significant bits
-		// So shift (nbits_e + nbits_d -2) bits right
-		rshift(qtmp, ndigs_e + ndigs_ri, nbits_e + nbits_d -2);
-		DBG_PRINTF_DIGITS("qtmp             :",qtmp,ndigs_e+ndigs_ri);
+	    DBG_PRINTF("ndigs_e=%d, ndigs_u=%d, ndigs_q=%d\n", ndigs_e, ndigs_u, ndigs_q);
+	    
+	    // Start with computing the most significant, incomplete digit of q (if applicable)
+	    if(nbits_q%PyLong_SHIFT != 0)
+	    {
+		int nbits_ei = nbits_q%PyLong_SHIFT;
+		int nbits_ri = (nbits_r-1)%PyLong_SHIFT+1;
+		DBG_PRINTF("nbits_ei=%d, nbits_ri=%d\n",nbits_ei,nbits_ri);
+		digit ri = (nbits_ri > nbits_ei) ? r_digits[ndigs_r-1] >> (nbits_ri - nbits_ei) :
+		    (r_digits[ndigs_r-2]>>(PyLong_SHIFT - (nbits_ei - nbits_ri))) |
+		    (r_digits[ndigs_r-1]<<(nbits_ei - nbits_ri));
+		digit ei = e[ndigs_e-1] >> (PyLong_SHIFT - nbits_ei);
+
+		// dq = ((r >> (nr-ne)) *e) >> (ne-1)
+		digit dq = mul_digit_digit(ei, ri) >> (nbits_ei -1);
+		DBG_ASSERT(dq >= (1u<<(nbits_ei-1)) && dq<(1u<<nbits_ei));
+		// |dq| = nbits_ei
+		q_digits[ndigs_q-1] = dq;
+
+		int nbits_qi = nbits_r - nbits_d - (nbits_ei -1);
+		DBG_ASSERT(nbits_qi%PyLong_SHIFT == 0);
+		int ndigs_qi = nbits_qi/PyLong_SHIFT;
+
+		// dr = (dq*d) << nqi
+		digit dr[ndigs_d+1];
+		memset(dr,0,sizeof(dr));
+		mul_digit_nr(dr, dq, denominator->ob_digit, ndigs_d);
+		DBG_PRINTF_DIGITS("dr  :",dr,ndigs_d+1);
+		DBG_PRINTF("dq=%x\n",dq);
+		DBG_ASSERT(ndigs_r -1 - ndigs_qi < ndigs_d +1);
+		for(int i=ndigs_qi; i<ndigs_r; i++) {
+		    r_digits[i] ^= dr[i - ndigs_qi];
+		}
+		DBG_PRINTF_DIGITS("r_0              :",r_digits,ndigs_r);		
 		
-		int ndigs_qtmp = (nbits_ri + PyLong_SHIFT - nbits_d)/PyLong_SHIFT;
-		for(int i=0; i<ndigs_qtmp; i++)
-		    q_digits[i] ^= qtmp[i];
-		DBG_PRINTF_DIGITS("q                :",q_digits,ndigs_q);
-		int ndigs_rtmp = ndigs_qtmp + ndigs_d;
-		digit rtmp[ndigs_rtmp];
-		memset(rtmp, 0, sizeof(rtmp));
-		mul_nl_nr(rtmp, qtmp, ndigs_qtmp, denominator->ob_digit, ndigs_d);
-		for(int i=0; i<ndigs_rtmp; i++)
-		    r_digits[i] ^= rtmp[i];
+		nbits_r -= nbits_ei;
+	    }
+	    // Loop over whole digits
+	    DBG_ASSERT(nbits_e%PyLong_SHIFT == 0);
+	    DBG_ASSERT((nbits_r - nbits_d +1)%PyLong_SHIFT == 0);
+	    for(; nbits_r >= nbits_d; nbits_r -= nbits_e) {
+		int ndigs_ei = GF2X_MIN(ndigs_e, (nbits_r - nbits_d +1)/PyLong_SHIFT);
+		int nbits_ei = ndigs_ei*PyLong_SHIFT;
+		DBG_PRINTF("nbits_ei=%d, ndigs_ei=%d\n",nbits_ei,ndigs_ei);
+
+		// dq = ((r >> (nr-ne)) *e) >> (ne-1)
+		digit dq[2*ndigs_ei];
+		memset(dq, 0, sizeof(dq));
+		int ndigs_ri = (nbits_r + (PyLong_SHIFT-1))/PyLong_SHIFT;
+		{
+		    int nbits_ri = (nbits_r-1)%PyLong_SHIFT+1;
+		    digit dr[ndigs_ei];
+		    memset(dr, 0, sizeof(dr));
+		    for(int i=0; i<ndigs_ei; i++)
+			dr[i] = r_digits[ndigs_ri - ndigs_ei +i] << (PyLong_SHIFT - nbits_ri) |
+			    r_digits[ndigs_ri - ndigs_ei +i -1] >> nbits_ri;
+		    DBG_PRINTF_DIGITS("r>>(nr-ne)       :",dr,ndigs_ei);		
+		    mul_nl_nr(dq, &e[ndigs_e - ndigs_ei], ndigs_ei, dr, ndigs_ei);
+		}
+		rshift(dq, 2*ndigs_ei, nbits_ei-1);
+		// |dq| is now = nbits_ei (the uppermost ndigs_ei digits is 0)
+		DBG_PRINTF_DIGITS("dq               :",dq,2*ndigs_ei);
+		
+		int ndigs_qi = nbits_r - nbits_d - (nbits_ei -1);
+		DBG_ASSERT(ndigs_qi%PyLong_SHIFT == 0);
+		ndigs_qi /= PyLong_SHIFT;
+		DBG_PRINTF("nbits_r=%d, nbits_d=%d, nbits_e=%d, ndigs_qi=%d\n",nbits_r,nbits_d, nbits_e, ndigs_qi);
+		
+		// dr = (dq*d) << nqi
+		digit dr[ndigs_ei + ndigs_d];
+		memset(dr, 0, sizeof(dr));
+		mul_nl_nr(dr, dq, ndigs_ei, denominator->ob_digit, ndigs_d);
+		DBG_PRINTF_DIGITS("dr               :",dr,ndigs_ei+ndigs_d);
+
+		for(int i=ndigs_qi; i < ndigs_ri; i++)
+		    if(dr[i-ndigs_qi])
+			r_digits[i] ^= dr[i-ndigs_qi];
+		for(int i=0; i<ndigs_ei; i++)
+		    if(dq[i])
+			q_digits[ndigs_qi+i] ^= dq[i];
 		DBG_PRINTF_DIGITS("r                :",r_digits,ndigs_r);
 	    }
 	}
