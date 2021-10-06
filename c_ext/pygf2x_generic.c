@@ -22,7 +22,7 @@
 #endif
 
 // Define to enable DBG_ASSERT checks
-#define DEBUG_PYGF2X
+//#define DEBUG_PYGF2X
 
 // Define to enable DBG_PRINTF and DBG_PRINTF_DIGITS printouts
 //#define DEBUG_PYGF2X_VERBOSE
@@ -270,6 +270,8 @@ mul_15_15(uint16_t l, uint16_t r)
 // Multiply two unsigned 15-bit polynomials over GF(2) (stored in uint16_t)
 // Return as a 29-bit polynomial (stored in uint32_t)
 {
+    DBG_ASSERT(l<(1<<15));
+    DBG_ASSERT(r<(1<<15));
     uint8_t l0 = l & 0x1f;
     l>>=5;
     uint8_t l1 = l&0x1f;
@@ -299,6 +301,8 @@ mul_30_30(uint32_t l, uint32_t r)
 // Multiply two unsigned 30-bit polynomials over GF(2) (stored in uint32_t)
 // Return as a 59-bit polynomial (stored in uint64_t)
 {
+    DBG_ASSERT(l<(1<<30));
+    DBG_ASSERT(r<(1<<30));
 #if defined(__PCLMUL__)
     __m128i li = {l,0};
     __m128i ri = {r,0};
@@ -344,6 +348,7 @@ static void mul_5_nr(digit * restrict const p,
 		     uint8_t l,
 		     const digit * restrict const r0, int nr)
 {
+    DBG_ASSERT(l<(1<<5));
 #if (PyLong_SHIFT == 15)
     for(int id_r=0; id_r<nr; id_r++) {
 	uint16_t ri = r0[id_r];
@@ -379,6 +384,7 @@ static void mul_15_nr(digit * restrict const p,
 		      uint16_t l,
 		      const digit * restrict const r0, int nr)
 {
+    DBG_ASSERT(l<(1<<15));
     for(int id_r=0; id_r<nr; id_r++) {
 #if (PyLong_SHIFT == 15)
 	uint32_t pi = mul_15_15(l, r0[id_r]);
@@ -401,6 +407,7 @@ static void mul_30_nr(digit * restrict const p,
 		      uint32_t l,
 		      const digit * restrict const r0, int nr)
 {
+    DBG_ASSERT(l<(1<<30));
 #if (PyLong_SHIFT == 15)
     digit l0 = l & PyLong_MASK;
     mul_15_nr(p, l0, r0, nr);
@@ -1445,7 +1452,7 @@ pygf2x_divmod(PyObject *self, PyObject *args)
 		    digit dr[ndigs_ei];
 		    memset(dr, 0, sizeof(dr));
 		    for(int i=0; i<ndigs_ei; i++)
-			dr[i] = r_digits[ndigs_ri - ndigs_ei +i] << (PyLong_SHIFT - nbits_ri) |
+			dr[i] = (r_digits[ndigs_ri - ndigs_ei +i] << (PyLong_SHIFT - nbits_ri) & PyLong_MASK) |
 			    r_digits[ndigs_ri - ndigs_ei +i -1] >> nbits_ri;
 		    DBG_PRINTF_DIGITS("r>>(nr-ne)       :",dr,ndigs_ei);		
 		    mul_nl_nr(dq, &e[ndigs_e - ndigs_ei], ndigs_ei, dr, ndigs_ei);
