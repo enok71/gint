@@ -181,3 +181,5 @@ def rinv(x, nbits):
     x*inv(x) = (r<<(nbits-1)) + 1, where r.bit_length() < nbits
     '''
     return gint(pygf2x.rinv(x, nbits))
+
+MAX_GINT = gint(pygf2x.MAX_GINT)

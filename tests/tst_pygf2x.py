@@ -11,6 +11,7 @@ import pygf2x_generic as gf2
 
 random.seed(1234567890)
 
+too_large = int(gint.MAX_GINT)+1
 
 class test_sqr(unittest.TestCase):
 
@@ -29,6 +30,14 @@ class test_sqr(unittest.TestCase):
     def test_neg(self):
         with self.assertRaises(ValueError):
             gf2.sqr(-10)
+            
+    def test_oversize(self):
+        with self.assertRaises(ValueError):
+            gf2.sqr(too_large)
+            
+    def test_overflow(self):
+        with self.assertRaises(ValueError):
+            gf2.sqr(1<<((gint.MAX_GINT.bit_length()+1)>>1))
             
     def test_0(self):
         self.assertEqual(gf2.sqr(0),0)
@@ -86,6 +95,18 @@ class test_mul(unittest.TestCase):
             gf2.mul(10,-5)
         with self.assertRaises(ValueError):
             gf2.mul(-10,-5)
+            
+    def test_oversize(self):
+        with self.assertRaises(ValueError):
+            gf2.mul(too_large,2)
+        with self.assertRaises(ValueError):
+            gf2.mul(2,too_large)
+            
+    def test_overflow(self):
+        len1 = 1000
+        len2 = gint.MAX_GINT.bit_length() - len1
+        with self.assertRaises(ValueError):
+            gf2.mul((1<<len1),(1<<len2))
             
     def test_0(self):
         self.assertEqual(gf2.mul(0,0),0)
@@ -211,6 +232,12 @@ class test_inv(unittest.TestCase):
     def test_1(self):
         self.assertEqual(gf2.inv(1,1),1)
 
+    def test_oversize(self):
+        with self.assertRaises(ValueError):
+            gf2.inv(too_large, 10)
+        with self.assertRaises(ValueError):
+            gf2.inv(10, too_large.bit_length())
+            
     def test_small(self):
         for i in range(1,1024):
             i = gi(i)
@@ -357,6 +384,12 @@ class test_div(unittest.TestCase):
             gf2.divmod(10,-5)
         with self.assertRaises(ValueError):
             gf2.divmod(-10,-5)
+            
+    def test_oversize(self):
+        with self.assertRaises(ValueError):
+            gf2.divmod(too_large,2)
+        with self.assertRaises(ValueError):
+            gf2.divmod(2,too_large)
             
     def test_0(self):
         self.assertEqual(gf2.divmod(0,1),(0,0))

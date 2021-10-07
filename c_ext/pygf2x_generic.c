@@ -21,6 +21,9 @@
 #include <mmintrin.h>
 #endif
 
+// Max input value size
+#define PYGF2X_MAX_DIGITS (9000000/PyLong_SHIFT)
+
 // Define to enable DBG_ASSERT checks
 //#define DEBUG_PYGF2X
 
@@ -498,12 +501,21 @@ pygf2x_sqr(PyObject *self, PyObject *args) {
         PyErr_SetString(PyExc_ValueError, "Argument must be non-negative");
         return NULL;
     }
+    if(((PyVarObject *)f)->ob_size > PYGF2X_MAX_DIGITS) {
+        PyErr_SetString(PyExc_ValueError, "Value is too large");
+        return NULL;
+    }
 
     int nbits_f = nbits(f);
     int nbits_p = 2*nbits_f -1;
     int ndigs_p = (nbits_p + (PyLong_SHIFT-1))/PyLong_SHIFT;
     int ndigs_f = ((PyVarObject *)f)->ob_size;
 
+    if(nbits_p > (PYGF2X_MAX_DIGITS * PyLong_SHIFT)) {
+        PyErr_SetString(PyExc_ValueError, "Value is too large");
+        return NULL;
+    }
+    
     PyLongObject *p = _PyLong_New(ndigs_p);
     digit *restrict result = p->ob_digit;
     memset(result,0,ndigs_p*sizeof(digit));
@@ -645,6 +657,14 @@ pygf2x_mul(PyObject *self, PyObject *args) {
 	return (PyObject *)p;
     }
 
+    if(((PyVarObject *)fl)->ob_size > PYGF2X_MAX_DIGITS
+       || ((PyVarObject *)fr)->ob_size > PYGF2X_MAX_DIGITS
+       //|| ((PyVarObject *)fl)->ob_size + ((PyVarObject *)fr)->ob_size > PYGF2X_MAX_DIGITS
+       ) {
+        PyErr_SetString(PyExc_ValueError, "Value is too large");
+        return NULL;
+    }
+    
     int nbits_l = nbits(fl);
     int nbits_r = nbits(fr);
     int nbits_p = nbits_l + nbits_r -1;
@@ -652,6 +672,11 @@ pygf2x_mul(PyObject *self, PyObject *args) {
     int ndigs_r = (nbits_r + (PyLong_SHIFT-1))/PyLong_SHIFT;
     int ndigs_p = (nbits_p + (PyLong_SHIFT-1))/PyLong_SHIFT;
 
+    if(nbits_p > (PYGF2X_MAX_DIGITS * PyLong_SHIFT)) {
+        PyErr_SetString(PyExc_ValueError, "Value is too large");
+        return NULL;
+    }
+    
     digit result[ndigs_l + ndigs_r];
     memset(result,0,sizeof(result));
     
@@ -1019,7 +1044,11 @@ pygf2x_inv(PyObject *self, PyObject *args) {
         PyErr_SetString(PyExc_ValueError, "Argument must be positive");
         return NULL;
     }
-    if(nbits_e <= 0 || nbits_e > ((1<<16)-1)) {
+    if(((PyVarObject *)d)->ob_size > PYGF2X_MAX_DIGITS) {
+        PyErr_SetString(PyExc_ValueError, "Value is too large");
+        return NULL;
+    }
+    if(nbits_e <= 0 || nbits_e > (PYGF2X_MAX_DIGITS*PyLong_SHIFT)) {
         PyErr_SetString(PyExc_ValueError, "Requested bit_length of inverse is out of range");
         return NULL;
     }
@@ -1216,11 +1245,15 @@ pygf2x_rinv(PyObject *self, PyObject *args) {
         PyErr_SetString(PyExc_ValueError, "Argument must be positive");
         return NULL;
     }
+    if(((PyVarObject *)d)->ob_size > PYGF2X_MAX_DIGITS) {
+        PyErr_SetString(PyExc_ValueError, "Value is too large");
+        return NULL;
+    }
     if((d->ob_digit[0] & 1) == 0) {
         PyErr_SetString(PyExc_ValueError, "Argument must be non-even");
         return NULL;
     }
-    if(nbits_e <= 0 || nbits_e > ((1<<16)-1)) {
+    if(nbits_e <= 0 || nbits_e > (PYGF2X_MAX_DIGITS*PyLong_SHIFT)) {
         PyErr_SetString(PyExc_ValueError, "Requested bit_length of inverse is out of range");
         return NULL;
     }
@@ -1297,6 +1330,11 @@ pygf2x_divmod(PyObject *self, PyObject *args)
     if(((PyVarObject *)numerator)->ob_size < 0 ||
        ((PyVarObject *)denominator)->ob_size < 0) {
         PyErr_SetString(PyExc_ValueError, "Both arguments must be non-negative");
+        return NULL;
+    }
+    if(((PyVarObject *)numerator)->ob_size > PYGF2X_MAX_DIGITS ||
+       ((PyVarObject *)denominator)->ob_size > PYGF2X_MAX_DIGITS) {
+        PyErr_SetString(PyExc_ValueError, "Value is too large");
         return NULL;
     }
 
@@ -1560,8 +1598,13 @@ PyMODINIT_FUNC PyInit_pygf2x_generic(void)
   // Python module initialization
     PyObject *pygf2x = PyModule_Create(&pygf2x_generic_module);
 
-    //PyModule_AddIntConstant(pygf2x, "BITWISE_DIVISION_LIMIT", 5);
-    //BITWISE_DIVISION_LIMIT = PyDict_GetItemString(PyModule_GetDict(pygf2x), "BITWISE_DIVISION_LIMIT");
+    PyLongObject *q = _PyLong_New(PYGF2X_MAX_DIGITS);
+    for(int i=0; i<PYGF2X_MAX_DIGITS; i++)
+	q->ob_digit[i] = PyLong_MASK;
+
+    PyModule_AddObject(pygf2x, "MAX_GINT", (PyObject *)q);
+    
+    PyModule_AddIntConstant(pygf2x, "BITS_IN_DIGIT", PYLONG_BITS_IN_DIGIT);
     
     return pygf2x;
 }
