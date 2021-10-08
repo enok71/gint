@@ -8,5 +8,5 @@
 #
 ################################################################################
 
-from .base import gint, MAX_GINT
+from .base import gint
 

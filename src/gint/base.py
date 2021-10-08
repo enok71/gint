@@ -166,20 +166,23 @@ class gint(int):
     def __rpow__(self,value):
         raise TypeError("gint as exponent doesn't make sense")
 
+    def inv(self, nbits):
+        ''' Multiplicative inverse of x, with nbits precision, i.e. 
+        x*inv(x) = (1<<(x.bit_length()+nbits-2)) + r, where r.bit_length() < nbits
+        '''
+        return gint(pygf2x.inv(self, nbits))
+
+    def rinv(self, nbits):
+        ''' Multiplicative inverse of x, with nbits precision, i.e. 
+        x*inv(x) = (r<<(nbits-1)) + 1, where r.bit_length() < nbits
+        '''
+        return gint(pygf2x.rinv(self, nbits))
+
+    
     @classmethod
-    def from_bytes(value):
+    def from_bytes(cls,value):
         return gint(int.from_bytes(value))
 
-def inv(x, nbits):
-    ''' Multiplicative inverse of x, with nbits precision, i.e. 
-    x*inv(x) = (1<<(x.bit_length()+nbits-2)) + r, where r.bit_length() < nbits
-    '''
-    return gint(pygf2x.inv(x, nbits))
-
-def rinv(x, nbits):
-    ''' Multiplicative inverse of x, with nbits precision, i.e. 
-    x*inv(x) = (r<<(nbits-1)) + 1, where r.bit_length() < nbits
-    '''
-    return gint(pygf2x.rinv(x, nbits))
-
-MAX_GINT = gint(pygf2x.MAX_GINT)
+    @classmethod
+    def MAX(cls):
+        return gint(pygf2x.MAX_GINT())

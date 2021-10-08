@@ -11,7 +11,7 @@ import pygf2x_generic as gf2
 
 random.seed(1234567890)
 
-too_large = int(gint.MAX_GINT)+1
+too_large = int(gi.MAX())+1
 
 class test_sqr(unittest.TestCase):
 
@@ -37,7 +37,7 @@ class test_sqr(unittest.TestCase):
             
     def test_overflow(self):
         with self.assertRaises(ValueError):
-            gf2.sqr(1<<((gint.MAX_GINT.bit_length()+1)>>1))
+            gf2.sqr(too_large)
             
     def test_0(self):
         self.assertEqual(gf2.sqr(0),0)
@@ -104,7 +104,7 @@ class test_mul(unittest.TestCase):
             
     def test_overflow(self):
         len1 = 1000
-        len2 = gint.MAX_GINT.bit_length() - len1
+        len2 = too_large.bit_length() - len1 +1
         with self.assertRaises(ValueError):
             gf2.mul((1<<len1),(1<<len2))
             

@@ -1564,6 +1564,16 @@ pygf2x_divmod(PyObject *self, PyObject *args)
     return Py_BuildValue("OO", q, r);
 }
 
+PyObject *pygf2x_MAX_GINT(PyObject *self,
+			  PyObject *args)
+{
+    PyLongObject *q = _PyLong_New(PYGF2X_MAX_DIGITS);
+    for(int i=0; i<PYGF2X_MAX_DIGITS; i++)
+	q->ob_digit[i] = PyLong_MASK;
+
+    return (PyObject *)q;
+}
+
 PyMethodDef pygf2x_generic_functions[] =
 {
     {
@@ -1591,10 +1601,17 @@ PyMethodDef pygf2x_generic_functions[] =
         "Multiplicative inverse of integer as polynomial over GF(2), with given precision"
     },
     {
+
         "rinv",
         pygf2x_rinv,
         METH_VARARGS,
         "Multiplicative inverse of integer as polynomial over GF(2), with given precision"
+    },
+    {
+        "MAX_GINT",
+        pygf2x_MAX_GINT,
+        METH_NOARGS,
+	"Maximum allowed value"
     },
     {
         NULL,                   // const char  *ml_name;  /* The name of the built-in function/method   */
@@ -1628,13 +1645,5 @@ PyMODINIT_FUNC PyInit_pygf2x_generic(void)
   // Python module initialization
     PyObject *pygf2x = PyModule_Create(&pygf2x_generic_module);
 
-    PyLongObject *q = _PyLong_New(PYGF2X_MAX_DIGITS);
-    for(int i=0; i<PYGF2X_MAX_DIGITS; i++)
-	q->ob_digit[i] = PyLong_MASK;
-
-    PyModule_AddObject(pygf2x, "MAX_GINT", (PyObject *)q);
-    
-    PyModule_AddIntConstant(pygf2x, "BITS_IN_DIGIT", PYLONG_BITS_IN_DIGIT);
-    
     return pygf2x;
 }
