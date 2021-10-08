@@ -33,7 +33,7 @@
 //#define DEBUG_PYGF2X_VERBOSE
 
 // Define to restrict DBG_PRINTF and DBG_PRINTF_DIGITS printouts to a specific function
-//#define DEBUG_PYGF2X_VERBOSE_FUNCTION "pygf2x_divmod"
+//#define DEBUG_PYGF2X_VERBOSE_FUNCTION "inverse"
 
 #ifdef DEBUG_PYGF2X_VERBOSE_FUNCTION
 #define DEBUG_PYGF2X_COND if(strcmp(__func__,DEBUG_PYGF2X_VERBOSE_FUNCTION)==0)
@@ -61,7 +61,13 @@ static void my_abort() {
 
 #ifdef DEBUG_PYGF2X_VERBOSE
 #define DBG_PRINTF(...) { DEBUG_PYGF2X_COND printf(__VA_ARGS__); }
+#if (PyLong_SHIFT == 30)
 #define DBG_PRINTF_DIGITS(msg,digits,ndigs) { DEBUG_PYGF2X_COND { DBG_PRINTF(msg); for(int i=(ndigs)-1; i>=0; i--) DBG_PRINTF("%08x'", (digits)[i]); DBG_PRINTF("\n"); }; }
+#elif (PyLong_SHIFT == 15)
+#define DBG_PRINTF_DIGITS(msg,digits,ndigs) { DEBUG_PYGF2X_COND { DBG_PRINTF(msg); for(int i=(ndigs)-1; i>=0; i--) DBG_PRINTF("%04x'", (digits)[i]); DBG_PRINTF("\n"); }; }
+#else
+#error
+#endif
 #else
 #define DBG_PRINTF(...)
 #define DBG_PRINTF_DIGITS(...)
@@ -914,7 +920,15 @@ inverse(digit *restrict e_digits, int ndigs_e, int nbits_e,
 	square_n(x2, n, &e_digits[ndigs_e-ncorrect], ncorrect);
 	DBG_PRINTF_DIGITS("x2=", x2, n);
 	DBG_PRINTF_DIGITS("d0=", d, ndigs_e);
-    
+
+#if (PyLong_SHIFT%2)
+	// Shift x2 one step left. The uppermost bit is zero anyway
+	// and we need the extra lowest bit in rare cases when
+	// ndigs_e is odd and when digits are odd bitsize
+	for(int i=1; i<n; i++)
+	    x2[n-i] = ((x2[n-i] << 1) &PyLong_MASK) | (x2[n-1-i] >> (PyLong_SHIFT-1));
+	x2[0] = ((x2[0] << 1) &PyLong_MASK);
+#endif	
 	int nn = ndigs_e<<1;
 	digit etmp[nn];
 	memset(etmp, 0, sizeof(etmp));
@@ -923,12 +937,16 @@ inverse(digit *restrict e_digits, int ndigs_e, int nbits_e,
 
 	// Discard all but the ndigs_e*PyLong_SHIFT-shift significant bits
 	for(int i=1; i<=ndigs_e; i++)
+#if (PyLong_SHIFT%2)
+	    e_digits[ndigs_e-i] = ((etmp[nn-i] << 1) &PyLong_MASK) | (etmp[nn-1-i] >> (PyLong_SHIFT-1));
+#else
 	    e_digits[ndigs_e-i] = ((etmp[nn-i] << 2) &PyLong_MASK) | (etmp[nn-1-i] >> (PyLong_SHIFT-2));
+#endif	
 	DBG_PRINTF_DIGITS("e=", e_digits, ndigs_e);
 
 	const int shift = (PyLong_SHIFT-1) - (nbits_e -1)%PyLong_SHIFT;
 
-	// Shift back to e_digits
+	// Shift back e_digits
 	for(int i=0; i<ndigs_e-1; i++)
 	    e_digits[i] = (e_digits[i]>>shift) | ((e_digits[i+1]<<(PyLong_SHIFT-shift)) &PyLong_MASK);
 	e_digits[ndigs_e-1] = e_digits[ndigs_e-1]>>shift;
