@@ -27,7 +27,7 @@
 #define PYGF2X_MAX_DIGITS (9000000/PyLong_SHIFT)
 
 // Define to enable DBG_ASSERT checks
-//#define DEBUG_PYGF2X
+#define DEBUG_PYGF2X
 
 // Define to enable DBG_PRINTF and DBG_PRINTF_DIGITS printouts
 //#define DEBUG_PYGF2X_VERBOSE
@@ -506,23 +506,16 @@ square_n(digit * restrict result, int ndigs_p, const digit *fdigits, int ndigs_f
 	digit pd0 = pi&PyLong_MASK;
 	digit pd1 = (pi>>PyLong_SHIFT);
 #elif defined(PYGF2X_USE_ARMV7_NEON)
-	poly8x8_t li  = {l, l>>8};
+	poly8x8_t li  = {ic, ic>>8};
 	poly16x8_t  pi128 = vmull_p8(li,li);
 	digit pd0 = pi128[0];
-	digit pd1 = pi128[1];
+	digit pd1 = pi128[1] << 1;
 #else
 	digit pd0 = sqr_8[ic&0xff];
 	ic>>=8;
-	digit pd1 = sqr_8[ic&0x7f] <<1;
+	digit pd1 = sqr_8[ic&0x7f];
+	pd1 <<= 1;
 #endif
-	if(pd0) {
-	    DBG_ASSERT(idp < ndigs_p);
-	    result[idp++] ^= pd0;
-	}
-	if(pd1) {
-	    DBG_ASSERT(idp < ndigs_p);
-	    result[idp++] ^= pd1;
-	}
 #elif (PyLong_SHIFT == 30)		
 #if defined(PYGF2X_USE_SSE_CLMUL)
 	__m128i li = {ic,0};
@@ -531,10 +524,10 @@ square_n(digit * restrict result, int ndigs_p, const digit *fdigits, int ndigs_f
 	digit pd0 = pi&PyLong_MASK;
 	digit pd1 = (pi>>PyLong_SHIFT);
 #elif defined(PYGF2X_USE_ARMV7_NEON)
-	poly8x8_t li  = {l, (l>>8)&0x7f, l>>15, l>>23};
+	poly8x8_t li  = {ic, (ic>>8)&0x7f, ic>>15, ic>>23};
 	poly16x8_t  pi128 = vmull_p8(li,li);
-	digit pd0 = pi128[0] ^ (pi128[1]<<8);
-	digit pd1 = pi128[2] ^ (pi128[3]<<8);
+	digit pd0 = pi128[0] ^ (pi128[1]<<16);
+	digit pd1 = pi128[2] ^ (pi128[3]<<16);
 #else
 	uint16_t pc0 = sqr_8[ic&0xff];
 	ic>>=8;
@@ -546,17 +539,19 @@ square_n(digit * restrict result, int ndigs_p, const digit *fdigits, int ndigs_f
 	uint16_t pc3 = sqr_8[ic&0x7f];
 	digit pd1 = (pc3 << 16) ^ pc2;
 #endif
-	if(pd0) {
-	    DBG_ASSERT(idp < ndigs_p);
-	    result[idp++] ^= pd0;
-	}
-	if(pd1) {
-	    DBG_ASSERT(idp < ndigs_p);
-	    result[idp++] ^= pd1;
-	}
 #else
 #error
 #endif
+	if(pd0) {
+	    DBG_ASSERT(idp < ndigs_p);
+	    result[idp] ^= pd0;
+	}
+	idp++;
+	if(pd1) {
+	    DBG_ASSERT(idp < ndigs_p);
+	    result[idp] ^= pd1;
+	}
+	idp++;
     }
 }
 
