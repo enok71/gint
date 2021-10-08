@@ -172,13 +172,6 @@ class gint(int):
         '''
         return gint(pygf2x.inv(self, nbits))
 
-    def rinv(self, nbits):
-        ''' Multiplicative inverse of x, with nbits precision, i.e. 
-        x*inv(x) = (r<<(nbits-1)) + 1, where r.bit_length() < nbits
-        '''
-        return gint(pygf2x.rinv(self, nbits))
-
-    
     @classmethod
     def from_bytes(cls,value):
         return gint(int.from_bytes(value))
