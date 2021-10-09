@@ -547,7 +547,7 @@ static void mul_30_nr(digit * restrict const p,
 #endif
 
 static void
-square_n(digit * restrict result, int ndigs_p, const digit *fdigits, int ndigs_f)
+square_n(digit * restrict result, const digit *fdigits, int ndigs_f)
 //
 // Compute square and add it to p
 // p += f^2
@@ -601,12 +601,10 @@ square_n(digit * restrict result, int ndigs_p, const digit *fdigits, int ndigs_f
 #error
 #endif
 	if(pd0) {
-	    DBG_ASSERT(idp < ndigs_p);
 	    result[idp] ^= pd0;
 	}
 	idp++;
 	if(pd1) {
-	    DBG_ASSERT(idp < ndigs_p);
 	    result[idp] ^= pd1;
 	}
 	idp++;
@@ -658,7 +656,7 @@ pygf2x_sqr(PyObject *self, PyObject *args)
     DBG_PRINTF("factor bits      = %-4d\n",nbits_f);
     DBG_PRINTF("Square digits    = %-4d\n",ndigs_p);
 
-    square_n(result, ndigs_p, f->ob_digit, ndigs_f);
+    square_n(result, f->ob_digit, ndigs_f);
 
     DBG_PRINTF_DIGITS("Square:", result, ndigs_p);
 
@@ -1025,7 +1023,7 @@ inverse(digit *restrict e_digits, int ndigs_e, int nbits_e,
 	int n = ncorrect<<1;
 	digit x2[n];
 	memset(x2, 0, sizeof(x2));
-	square_n(x2, n, &e_digits[ndigs_e-ncorrect], ncorrect);  // The highest bit of x2 is now 0
+	square_n(x2, &e_digits[ndigs_e-ncorrect], ncorrect);  // The highest bit of x2 is now 0
 	DBG_PRINTF_DIGITS("x2=", x2, n);
     
 	int nn = n<<1;
@@ -1056,7 +1054,7 @@ inverse(digit *restrict e_digits, int ndigs_e, int nbits_e,
 	int n = ncorrect<<1;
 	digit x2[n];
 	memset(x2, 0, sizeof(x2));
-	square_n(x2, n, &e_digits[ndigs_e-ncorrect], ncorrect);  // The highest bit of x2 is now 0
+	square_n(x2, &e_digits[ndigs_e-ncorrect], ncorrect);  // The highest bit of x2 is now 0
 	DBG_PRINTF_DIGITS("x2=", x2, n);
 	DBG_PRINTF_DIGITS("d0=", d, ndigs_e);
 
@@ -1258,7 +1256,7 @@ rinverse(digit *restrict e_digits, int ndigs_e, int nbits_e,
 	int n = ncorrect<<1;
 	digit x2[n];
 	memset(x2, 0, sizeof(x2));
-	square_n(x2, n, &e_digits[0], ncorrect);
+	square_n(x2, &e_digits[0], ncorrect);
 	DBG_PRINTF_DIGITS("x2=", x2, n);
 	DBG_PRINTF_DIGITS("d0=", d, ndigs_e);
     
@@ -1283,7 +1281,7 @@ rinverse(digit *restrict e_digits, int ndigs_e, int nbits_e,
 	int n = ncorrect<<1;
 	digit x2[n];
 	memset(x2, 0, sizeof(x2));
-	square_n(x2, n, e_digits, ncorrect);
+	square_n(x2, e_digits, ncorrect);
 	DBG_PRINTF_DIGITS("x2=", x2, n);
 	DBG_PRINTF_DIGITS("d0=", d, ndigs_e);
     
