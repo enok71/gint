@@ -308,25 +308,29 @@ static void mul_5_nr(digit * restrict const p,
 //
 {
     DBG_ASSERT(l<(1<<5));
-    for(int id_r=0; id_r<nr; id_r++) {
 #if (PyLong_SHIFT == 15)
 #if defined(PYGF2X_USE_SSE_CLMUL)
-	__m128i li = {l,0};
+    __m128i li = {l,0};
+    for(int id_r=0; id_r<nr; id_r++) {
 	__m128i ri = {r0[id_r],0};
 	__m128i pi128 = _mm_clmulepi64_si128(li,ri,0);
 	twodigits pi = pi128[0];
 	p[id_r] ^= pi&PyLong_MASK;
 	p[id_r+1] ^= (pi>>PyLong_SHIFT);
+    }
 #elif defined(PYGF2X_USE_ARMV7_NEON)
+    poly8x8_t li  = {l, l};
+    for(int id_r=0; id_r<nr; id_r++) {
 	poly8x8_t ri  = {r0[id_r], r0[id_r]>> 8 };
-	poly8x8_t li  = {l, l};
 	poly16x8_t  pi128 = vmull_p8(li,ri);
 	uint32_t  pi   = pi128[1];
 	pi <<= 8;
 	pi ^= pi128[0];
 	p[id_r] ^= pi&PyLong_MASK;
 	p[id_r+1] ^= (pi>>PyLong_SHIFT);
+    }
 #else
+    for(int id_r=0; id_r<nr; id_r++) {
 	uint16_t ri = r0[id_r];
 	uint16_t pi_0 = mul_5_5[l][ri&0x1f];
 	ri >>= 5;
@@ -335,18 +339,22 @@ static void mul_5_nr(digit * restrict const p,
 	uint16_t pi_2 = mul_5_5[l][ri&0x1f];
 	p[id_r] ^= ((((pi_2 << 5) ^ pi_1) << 5) ^ pi_0) & PyLong_MASK;
 	p[id_r+1] ^= pi_2 >> 5;
+    }
 #endif
 #elif (PyLong_SHIFT == 30)
 #if defined(PYGF2X_USE_SSE_CLMUL)
-	__m128i li = {l,0};
+    __m128i li = {l,0};
+    for(int id_r=0; id_r<nr; id_r++) {
 	__m128i ri = {r0[id_r],0};
 	__m128i pi128 = _mm_clmulepi64_si128(li,ri,0);
 	twodigits pi = pi128[0];
 	p[id_r] ^= pi&PyLong_MASK;
 	p[id_r+1] ^= (pi>>PyLong_SHIFT);
+    }
 #elif defined(PYGF2X_USE_ARMV7_NEON)
+    poly8x8_t li  = {l, l, l, l};
+    for(int id_r=0; id_r<nr; id_r++) {
 	poly8x8_t ri  = {r0[id_r], r0[id_r]>> 8, r0[id_r]>> 16, r0[id_r]>> 24 };
-	poly8x8_t li  = {l, l, l, l};
         poly16x8_t  pi128 = vmull_p8(li,ri);
 	uint64_t  pi  = pi128[3];
 	pi <<= 8;
@@ -357,7 +365,9 @@ static void mul_5_nr(digit * restrict const p,
 	pi ^= pi128[0];
 	p[id_r] ^= pi&PyLong_MASK;
 	p[id_r+1] ^= (pi>>PyLong_SHIFT);
+    }
 #else
+    for(int id_r=0; id_r<nr; id_r++) {
 	uint32_t ri = r0[id_r];
 	uint16_t pi_0 = mul_5_5[l][ri&0x1f];
 	ri >>= 5;
@@ -372,11 +382,11 @@ static void mul_5_nr(digit * restrict const p,
 	uint16_t pi_5 = mul_5_5[l][ri&0x1f];
 	p[id_r] ^= ((((((((((pi_5 << 5) ^ pi_4) << 5) ^ pi_3) << 5) ^ pi_2) << 5) ^ pi_1) << 5) ^ pi_0) & PyLong_MASK;
 	p[id_r+1] ^= pi_5 >> 5;
+    }
 #endif
 #else
 #error
 #endif
-    }
 }
 
 static void mul_15_nr(digit * restrict const p,
@@ -387,18 +397,20 @@ static void mul_15_nr(digit * restrict const p,
 //
 {
     DBG_ASSERT(l<(1<<15));
-    for(int id_r=0; id_r<nr; id_r++) {
 #if (PyLong_SHIFT == 15)
 #if defined(PYGF2X_USE_SSE_CLMUL)
-	__m128i li = {l,0};
+    __m128i li = {l,0};
+    for(int id_r=0; id_r<nr; id_r++) {
 	__m128i ri = {r0[id_r],0};
 	__m128i pi128 = _mm_clmulepi64_si128(li,ri,0);
 	twodigits pi = pi128[0];
 	p[id_r] ^= pi&PyLong_MASK;
 	p[id_r+1] ^= (pi>>PyLong_SHIFT);
+    }
 #elif defined(PYGF2X_USE_ARMV7_NEON)
+    poly8x8_t li  = {l, l, l>>8, l>>8};
+    for(int id_r=0; id_r<nr; id_r++) {
 	poly8x8_t ri  = {r0[id_r], r0[id_r]>> 8, r0[id_r], r0[id_r]>> 8 };
-	poly8x8_t li  = {l, l, l>>8, l>>8};
 	poly16x8_t  pi128 = vmull_p8(li,ri);
 	uint32_t  pi   = pi128[3];
 	pi <<= 8;
@@ -407,23 +419,29 @@ static void mul_15_nr(digit * restrict const p,
 	pi ^= pi128[0];
 	p[id_r] ^= pi&PyLong_MASK;
 	p[id_r+1] ^= (pi>>PyLong_SHIFT);
+    }
 #else
+    for(int id_r=0; id_r<nr; id_r++) {
 	uint32_t pi = mul_15_15(l, r0[id_r]);
 	p[id_r] ^= (pi & PyLong_MASK);
 	p[id_r+1] ^= (pi >> PyLong_SHIFT);
+    }
 #endif
 #elif PyLong_SHIFT == 30
 #if defined(PYGF2X_USE_SSE_CLMUL)
-	__m128i li = {l,0};
+    __m128i li = {l,0};
+    for(int id_r=0; id_r<nr; id_r++) {
 	__m128i ri = {r0[id_r],0};
 	__m128i pi128 = _mm_clmulepi64_si128(li,ri,0);
 	twodigits pi = pi128[0];
 	p[id_r] ^= pi&PyLong_MASK;
 	p[id_r+1] ^= (pi>>PyLong_SHIFT);
+    }
 #elif defined(PYGF2X_USE_ARMV7_NEON)
+    poly8x8_t li  = {l, l, l, l, l>>8, l>>8, l>>8, l>>8};
+    for(int id_r=0; id_r<nr; id_r++) {
 	poly8x8_t ri  = {r0[id_r], r0[id_r]>> 8, r0[id_r]>> 16, r0[id_r]>> 24,
 			 r0[id_r], r0[id_r]>> 8, r0[id_r]>> 16, r0[id_r]>> 24 };
-	poly8x8_t li  = {l, l, l, l, l>>8, l>>8, l>>8, l>>8};
         poly16x8_t  pi128 = vmull_p8(li,ri);
 	uint64_t  pi  = pi128[7];
 	pi <<= 8;
@@ -436,18 +454,20 @@ static void mul_15_nr(digit * restrict const p,
 	pi ^= pi128[0];
 	p[id_r] ^= pi&PyLong_MASK;
 	p[id_r+1] ^= (pi>>PyLong_SHIFT);
+    }
 #else
+    for(int id_r=0; id_r<nr; id_r++) {
 	uint16_t ri_0 = r0[id_r]&0x7fff;
 	uint16_t ri_1 = r0[id_r]>>15;
 	uint32_t pi_0 = mul_15_15(l, ri_0);
 	uint32_t pi_1 = mul_15_15(l, ri_1);
 	p[id_r] ^= pi_0 ^ ((pi_1 & ((1<<15)-1))<<15);
 	p[id_r+1] ^= (pi_1 >> 15);
+    }
 #endif
 #else
 #error
 #endif
-    }
 }
 
 #if (PyLong_SHIFT == 30)
@@ -455,16 +475,54 @@ static void mul_30_nr(digit * restrict const p,
 		      uint32_t l,
 		      const digit * restrict const r0, int nr)
 //
-// Multiply a bignum polynomial by a 15-bit polynomial
+// Multiply a bignum polynomial by a 30-bit polynomial
 //
 {
     DBG_ASSERT(l<(1<<30));
+#if defined(PYGF2X_USE_SSE_CLMUL)
+    __m128i li = {l,0};
+    for(int id_r=0; id_r<nr; id_r++) {
+	__m128i ri = {r0[id_r],0};
+	__m128i pi128 = _mm_clmulepi64_si128(li,ri,0);
+	twodigits pi = pi128[0];
+	p[id_r] ^= pi&PyLong_MASK;
+	p[id_r+1] ^= (pi>>PyLong_SHIFT);
+    }
+#elif defined(PYGF2X_USE_ARMV7_NEON)
+    poly8x8_t li1 = {l>>16, l>>16, l>>16, l>>16, l>>24, l>>24, l>>24, l>>24};
+    poly8x8_t li0 = {l    , l    , l    , l    , l>> 8, l>> 8, l>> 8, l>> 8};
+    for(int id_r=0; id_r<nr; id_r++) {
+	poly8x8_t ri  = {r0[id_r], r0[id_r]>> 8, r0[id_r]>> 16, r0[id_r]>> 24,
+			 r0[id_r], r0[id_r]>> 8, r0[id_r]>> 16, r0[id_r]>> 24 };
+	poly16x8_t  pi1 = vmull_p8(li1,ri);
+	poly16x8_t  pi0 = vmull_p8(li0,ri);
+	uint64_t  pi  = pi1[7];
+	pi <<= 8;
+	pi ^= pi1[6] ^ pi1[3];
+	pi <<= 8;
+	pi ^= pi1[5] ^ pi1[2] ^ pi0[7];
+	pi <<= 8;
+	pi ^= pi1[4] ^ pi1[1] ^ pi0[6] ^ pi0[3];
+	pi <<= 8;
+	pi ^= pi1[0] ^ pi0[5] ^ pi0[2];
+	pi <<= 8;
+	pi ^= pi0[4] ^ pi0[1];
+	pi <<= 8;
+	pi ^= pi0[0];
+
+	p[id_r  ] ^= pi&PyLong_MASK;
+	p[id_r+1] ^= (pi>>PyLong_SHIFT);
+    }
+
+    return p;
+#else
     for(int id_r=0; id_r<nr; id_r++) {
 	
 	twodigits pi = mul_30_30(l, r0[id_r]);
 	p[id_r] ^= (pi & PyLong_MASK);
 	p[id_r+1] ^= (pi >> PyLong_SHIFT);
     }
+#endif
 }
 #elif !(PyLong_SHIFT == 15)
 #error
