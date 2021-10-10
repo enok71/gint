@@ -6,8 +6,7 @@
 #
 # Description:
 #
-# Define gint class (inifinite polynomial field) and gint_ring classes (polynomials
-# modulo some constant)
+# Define gint class (inifinite polynomial field over GF(2))
 #
 ################################################################################
 
@@ -18,32 +17,34 @@ class gint(int):
     This class implements unlimited polynomials over GF(2).
     It is derived from the built-in `int` object.
     Overloaded operators for algebra include +,-,*,/,%,divmod.
-    Exponentiation with standard integer exponent using ** operator is allowed.
+    Exponentiation with integer exponent using ** operator is supported.
     Boolean operators &,|,^ are supported, even with integers (returning gint)
     Shift operators with integer shift is allowed.
     '''
     def __init__(self, i0=0):
         ''' Create from integer '''
+        if i0.bit_length() > 9000000:
+            raise OverflowError("Attempt to create a gint with value out of range")
         int.__init__(i0)
     
     def __mul__(self,value):
         if not isinstance(value, gint):
-            raise TypeError('Cannot multiply gint with %s'%type(value))
+            raise TypeError('Cannot multiply gint with %s'%type(value).__name__)
         return gint(pygf2x.mul(self,value))
 
     def __rmul__(self,value):
         if not isinstance(value, gint):
-            raise TypeError('Cannot multiply %s with gint'%type(value))
+            raise TypeError('Cannot multiply %s with gint'%type(value).__name__)
         return gint(pygf2x.mul(value,self))
     
     def __truediv__(self,value):
         if not isinstance(value, gint):
-            raise TypeError('Cannot divide gint with %s'%type(value))
+            raise TypeError('Cannot divide gint with %s'%type(value).__name__)
         return gint(pygf2x.divmod(self,value)[0])
 
     def __rtruediv__(self,value):
         if not isinstance(value, gint):
-            raise TypeError('Cannot divide %s with gint'%type(value))
+            raise TypeError('Cannot divide %s with gint'%type(value).__name__)
         return gint(pygf2x.divmod(self,value)[0])
 
     def __floordiv__(self,value):
@@ -54,42 +55,42 @@ class gint(int):
 
     def __divmod__(self, value):
         if not isinstance(value, gint):
-            raise TypeError('Cannot divmod gint with %s'%type(value))
+            raise TypeError('Cannot divmod gint with %s'%type(value).__name__)
         return tuple(map(lambda x : gint(x), pygf2x.divmod(self,value)))
 
     def __rdivmod__(self, value):
         if not isinstance(value, gint):
-            raise TypeError('Cannot divmod %s with gint'%type(value))
+            raise TypeError('Cannot divmod %s with gint'%type(value).__name__)
         return tuple(map(lambda x : gint(x), pygf2x.divmod(value,self)))
 
     def __mod__(self, value):
         if not isinstance(value, gint):
-            raise TypeError('Cannot modulo gint with %s'%type(value))
+            raise TypeError('Cannot modulo gint with %s'%type(value).__name__)
         return gint(pygf2x.divmod(self,value)[1])
 
     def __rmod__(self, value):
         if not isinstance(value, gint):
-            raise TypeError('Cannot modulo %s with gint'%type(value))
+            raise TypeError('Cannot modulo %s with gint'%type(value).__name__)
         return gint(pygf2x.divmod(value,self)[1])
 
     def __add__(self,value):
         if not isinstance(value, gint):
-            raise TypeError('Cannot add gint with %s'%type(value))
+            raise TypeError('Cannot add gint with %s'%type(value).__name__)
         return gint(int.__xor__(self,value))
     
     def __radd__(self,value):
         if not isinstance(value, gint):
-            raise TypeError('Cannot add %s with gint'%type(value))
+            raise TypeError('Cannot add %s with gint'%type(value).__name__)
         return gint(int.__xor__(value,self))
 
     def __sub__(self,value):
         if not isinstance(value, gint):
-            raise TypeError('Cannot subtract %s from gint'%type(value))
+            raise TypeError('Cannot subtract %s from gint'%type(value).__name__)
         return gint(int.__xor__(self,value))
     
     def __rsub__(self,value):
         if not isinstance(value, gint):
-            raise TypeError('Cannot subtract gint from %s'%type(value))
+            raise TypeError('Cannot subtract gint from %s'%type(value).__name__)
         return gint(int.__xor__(value,self))
 
     def __neg__(self):
@@ -150,6 +151,9 @@ class gint(int):
 
         if value==1:
             return gint(self)
+
+        if value*self.bit_length() > 9000000:
+            raise OverflowError("Exponentiation result out of range")
         
         result = gint(1)
         prod = gint(self)

@@ -36,8 +36,8 @@ class test_sqr(unittest.TestCase):
             gf2.sqr(too_large)
             
     def test_overflow(self):
-        with self.assertRaises(ValueError):
-            gf2.sqr(too_large)
+        with self.assertRaises(OverflowError):
+            gf2.sqr(1<<(too_large.bit_length()//2+1))
             
     def test_0(self):
         self.assertEqual(gf2.sqr(0),0)
@@ -105,7 +105,7 @@ class test_mul(unittest.TestCase):
     def test_overflow(self):
         len1 = 1000
         len2 = too_large.bit_length() - len1 +1
-        with self.assertRaises(ValueError):
+        with self.assertRaises(OverflowError):
             gf2.mul((1<<len1),(1<<len2))
             
     def test_0(self):
@@ -235,7 +235,7 @@ class test_inv(unittest.TestCase):
     def test_oversize(self):
         with self.assertRaises(ValueError):
             gf2.inv(too_large, 10)
-        with self.assertRaises(ValueError):
+        with self.assertRaises(OverflowError):
             gf2.inv(10, too_large.bit_length())
             
     def test_small(self):

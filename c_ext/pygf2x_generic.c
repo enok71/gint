@@ -634,7 +634,7 @@ pygf2x_sqr(PyObject *self, PyObject *args)
         return NULL;
     }
     if(((PyVarObject *)f)->ob_size > PYGF2X_MAX_DIGITS) {
-        PyErr_SetString(PyExc_ValueError, "Value is too large");
+        PyErr_SetString(PyExc_ValueError, "Factor out of range");
         return NULL;
     }
 
@@ -644,7 +644,7 @@ pygf2x_sqr(PyObject *self, PyObject *args)
     int ndigs_f = ((PyVarObject *)f)->ob_size;
 
     if(nbits_p > (PYGF2X_MAX_DIGITS * PyLong_SHIFT)) {
-        PyErr_SetString(PyExc_ValueError, "Value is too large");
+        PyErr_SetString(PyExc_OverflowError, "Result of square is out of range");
         return NULL;
     }
     
@@ -793,13 +793,12 @@ pygf2x_mul(PyObject *self, PyObject *args)
     }
 
     if(((PyVarObject *)fl)->ob_size > PYGF2X_MAX_DIGITS
-       || ((PyVarObject *)fr)->ob_size > PYGF2X_MAX_DIGITS
-       //|| ((PyVarObject *)fl)->ob_size + ((PyVarObject *)fr)->ob_size > PYGF2X_MAX_DIGITS
+       ||((PyVarObject *)fr)->ob_size > PYGF2X_MAX_DIGITS
        ) {
-        PyErr_SetString(PyExc_ValueError, "Value is too large");
+        PyErr_SetString(PyExc_ValueError, "Factor is out of range");
         return NULL;
     }
-    
+
     int nbits_l = nbits(fl);
     int nbits_r = nbits(fr);
     int nbits_p = nbits_l + nbits_r -1;
@@ -807,8 +806,8 @@ pygf2x_mul(PyObject *self, PyObject *args)
     int ndigs_r = (nbits_r + (PyLong_SHIFT-1))/PyLong_SHIFT;
     int ndigs_p = (nbits_p + (PyLong_SHIFT-1))/PyLong_SHIFT;
 
-    if(nbits_p > (PYGF2X_MAX_DIGITS * PyLong_SHIFT)) {
-        PyErr_SetString(PyExc_ValueError, "Value is too large");
+    if(ndigs_p > PYGF2X_MAX_DIGITS) {
+        PyErr_SetString(PyExc_OverflowError, "Result of multiplication is out of range");
         return NULL;
     }
     
@@ -1124,11 +1123,15 @@ pygf2x_inv(PyObject *self, PyObject *args)
         return NULL;
     }
     if(((PyVarObject *)d)->ob_size > PYGF2X_MAX_DIGITS) {
-        PyErr_SetString(PyExc_ValueError, "Value is too large");
+        PyErr_SetString(PyExc_ValueError, "Inverse operand is out of range");
+        return NULL;
+    }
+    if(nbits_e <= 0) {
+        PyErr_SetString(PyExc_ValueError, "Inverse bit_length must be positive");
         return NULL;
     }
     if(nbits_e <= 0 || nbits_e > (PYGF2X_MAX_DIGITS*PyLong_SHIFT)) {
-        PyErr_SetString(PyExc_ValueError, "Requested bit_length of inverse is out of range");
+        PyErr_SetString(PyExc_OverflowError, "Requested bit_length of inverse is out of range");
         return NULL;
     }
     
@@ -1328,15 +1331,15 @@ pygf2x_rinv(PyObject *self, PyObject *args)
         return NULL;
     }
     if(((PyVarObject *)d)->ob_size > PYGF2X_MAX_DIGITS) {
-        PyErr_SetString(PyExc_ValueError, "Value is too large");
+        PyErr_SetString(PyExc_ValueError, "Rev-inverse operand is out of range");
         return NULL;
     }
     if((d->ob_digit[0] & 1) == 0) {
-        PyErr_SetString(PyExc_ValueError, "Argument must be non-even");
+        PyErr_SetString(PyExc_ValueError, "Argument must not be even");
         return NULL;
     }
     if(nbits_e <= 0 || nbits_e > (PYGF2X_MAX_DIGITS*PyLong_SHIFT)) {
-        PyErr_SetString(PyExc_ValueError, "Requested bit_length of inverse is out of range");
+        PyErr_SetString(PyExc_OverflowError, "Requested bit_length of inverse is out of range");
         return NULL;
     }
     
@@ -1420,7 +1423,7 @@ pygf2x_divmod(PyObject *self, PyObject *args)
     }
     if(((PyVarObject *)numerator)->ob_size > PYGF2X_MAX_DIGITS ||
        ((PyVarObject *)denominator)->ob_size > PYGF2X_MAX_DIGITS) {
-        PyErr_SetString(PyExc_ValueError, "Value is too large");
+        PyErr_SetString(PyExc_ValueError, "Numerator or denominator out of range");
         return NULL;
     }
 
