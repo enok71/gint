@@ -183,6 +183,13 @@ class test_mul(unittest.TestCase):
             r = randint(1<<30,(1<<60)-1)
             self.assertEqual(gf2.mul(l,r),self.model_mul(l,r))
 
+    def test_allbitlengths(self):
+        for nl in range(1,100):
+            for nr in range(1,100):
+                l = randint(1<<(nl-1), (1<<nl)-1)
+                r = randint(1<<(nr-1), (1<<nr)-1)
+                self.assertEqual(gf2.mul(l,r),self.model_mul(l,r))
+    
     def test_1000_1000(self):
         for n in range(0,100):
             l = randint(1,(1<<1000)-1)
@@ -274,6 +281,12 @@ class test_inv(unittest.TestCase):
             ne = ni*5+3
             self.assertEqual((gi(gf2.inv(i,ne))*i)>>(ni-1), 1<<(ne-1))
 
+    def test_allrange(self):
+        for ni in range(1,100):
+            for ne in range(1,100):
+                i = gi(randint(1<<(ni-1),(1<<ni)-1))
+                self.assertEqual((gi(gf2.inv(i,ne))*i)>>(ni-1), 1<<(ne-1))
+            
     def test_big(self):
         for i in range(1,1024):
             i = gi(randint(1<<(i-1),(1<<i)-1))
@@ -481,6 +494,15 @@ class test_div(unittest.TestCase):
             q,r = gf2.divmod(u,d)
             self.assertEqual(gf2.mul(q,d)^r,u,'divmod(%x,%x)'%(u,d))
             self.assertTrue(r.bit_length() < d.bit_length(), 'u=%x d=%x'%(u,d))
+            
+    def test_allbitlengths(self):
+        for nd in range(1,100):
+            for nu in range(1,100):
+                u = randint(1<<(nu-1), (1<<nu)-1)
+                d = randint(1<<(nd-1), (1<<nd)-1)
+                q,r = gf2.divmod(u,d)
+                self.assertEqual(gf2.mul(q,d)^r,u,'divmod(%x,%x)'%(u,d))
+                self.assertTrue(r.bit_length() < d.bit_length(),'divmod(\n%x,\n%x)\n%d,%d\n%x'%(u,d,r.bit_length(),d.bit_length(),r))
             
     def test_10000_100(self):
         for n in range(0,100):
