@@ -5,7 +5,7 @@
  * Licensed under the MIT license. See LICENSE file in the project root for details.
  *
  * Description:
- * Base (generic) implementation of arithmetic on infinite polynomials over GF(2)
+ * Implementation of arithmetic on unlimited polynomials over GF(2)
  *
  *******************************************************************************/
 
@@ -23,7 +23,7 @@
 #define PYGF2X_USE_ARMV7_NEON
 #endif
 
-// Max input value size
+// Max value size
 #define PYGF2X_MAX_DIGITS (9000000/PyLong_SHIFT)
 
 // Define to enable DBG_ASSERT checks
@@ -33,7 +33,7 @@
 //#define DEBUG_PYGF2X_VERBOSE
 
 // Define to restrict DBG_PRINTF and DBG_PRINTF_DIGITS printouts to a specific function
-//#define DEBUG_PYGF2X_VERBOSE_FUNCTION "inverse"
+//#define DEBUG_PYGF2X_VERBOSE_FUNCTION "pygf2x_divmod"
 
 #ifdef DEBUG_PYGF2X_VERBOSE_FUNCTION
 #define DEBUG_PYGF2X_COND if(strcmp(__func__,DEBUG_PYGF2X_VERBOSE_FUNCTION)==0)
@@ -1437,7 +1437,7 @@ pygf2x_divmod(PyObject *self, PyObject *args)
     int ndigs_u = (nbits_u + (PyLong_SHIFT-1))/PyLong_SHIFT;
     
     int nbits_q = nbits_u > nbits_d-1 ? nbits_u - (nbits_d-1) : 0;
-    int nbits_r = nbits_u > nbits_d-1 ? nbits_u : nbits_d-1; // The final n.o. remainder bits is <= this value.
+    int nbits_r = nbits_u > nbits_d-1 ? nbits_u : nbits_d-1; // Enough room to store u initially, and r finally
     int ndigs_q = (nbits_q + (PyLong_SHIFT-1))/PyLong_SHIFT;
     int ndigs_r = (nbits_r + (PyLong_SHIFT-1))/PyLong_SHIFT;
 
@@ -1453,7 +1453,7 @@ pygf2x_divmod(PyObject *self, PyObject *args)
     DBG_PRINTF("Numerator bits   = %-4d\n",nbits_u);
     DBG_PRINTF("Denominator bits = %-4d\n",nbits_d);
     DBG_PRINTF("Quotient bits    = %-4d\n",nbits_q);
-    DBG_PRINTF("Remainder bits  <= %-4d\n",nbits_r);
+    DBG_PRINTF("Remainder bits  <= %-4d\n",nbits_d-1);
 
     DBG_PRINTF_DIGITS("Numerator        :",numerator->ob_digit,ndigs_u);
     DBG_PRINTF_DIGITS("Denominator      :",denominator->ob_digit,ndigs_d);
@@ -1507,13 +1507,14 @@ pygf2x_divmod(PyObject *self, PyObject *args)
 	     * each step above.
 	     *
 	     * In the implementation below we use |e| which is an entire Python Digit, to make implementation
-	     * simpler and faster for bit polynomials.
+	     * simpler and faster for large polynomials.
+	     *
 	     */
 	    
 	    // Choose accuracy of inverse to compute:
 	    // If nbits_d >= nbits_q just compute q with one single step in the Euclidean division loop below
 	    // Otherwise take multiple steps, each of size nbits_d or less
-	    int nbits_e = GF2X_MIN(nbits_q +1, nbits_d);
+	    int nbits_e = GF2X_MIN(nbits_q, nbits_d);
 	    // Round up to nearest digit size
 	    int ndigs_e = (nbits_e + (PyLong_SHIFT-1))/PyLong_SHIFT;
 	    nbits_e = PyLong_SHIFT*ndigs_e;
@@ -1540,6 +1541,7 @@ pygf2x_divmod(PyObject *self, PyObject *args)
 
 		// dq = ((r >> (nr-ne)) *e) >> (ne-1)
 		digit dq = mul_digit_digit(ei, ri) >> (nbits_ei -1);
+		DBG_PRINTF("ei=%x, ri=%x, dq=%x\n",ei,ri,dq);
 		DBG_ASSERT(dq >= (1u<<(nbits_ei-1)) && dq<(1u<<nbits_ei));
 		// |dq| = nbits_ei
 		q_digits[ndigs_q-1] = dq;
@@ -1551,7 +1553,7 @@ pygf2x_divmod(PyObject *self, PyObject *args)
 		// dr = (dq*d) << nqi
 		digit dr[ndigs_d+1];
 		memset(dr,0,sizeof(dr));
-		mul_digit_nr(dr, dq, denominator->ob_digit, ndigs_d);
+		mul_nl_nr(dr, &dq, 1, denominator->ob_digit, ndigs_d);
 		DBG_PRINTF_DIGITS("dr  :",dr,ndigs_d+1);
 		DBG_PRINTF("dq=%x\n",dq);
 		DBG_ASSERT(ndigs_r -1 - ndigs_qi < ndigs_d +1);
@@ -1581,7 +1583,7 @@ pygf2x_divmod(PyObject *self, PyObject *args)
 		    for(int i=0; i<ndigs_ei; i++)
 			dr[i] = (r_digits[ndigs_ri - ndigs_ei +i] << (PyLong_SHIFT - nbits_ri) & PyLong_MASK) |
 			    r_digits[ndigs_ri - ndigs_ei +i -1] >> nbits_ri;
-		    DBG_PRINTF_DIGITS("r>>(nr-ne)       :",dr,ndigs_ei);		
+		    DBG_PRINTF_DIGITS("r>>(nr-ne)       :",dr,ndigs_ei);
 		    mul_nl_nr(dq, &e[ndigs_e - ndigs_ei], ndigs_ei, dr, ndigs_ei);
 		}
 		rshift(dq, 2*ndigs_ei, nbits_ei-1);
