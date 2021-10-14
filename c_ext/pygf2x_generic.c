@@ -19,13 +19,13 @@
 #define PYGF2X_MAX_DIGITS (9000000/PyLong_SHIFT)
 
 // Define to enable DBG_ASSERT checks
-#define DEBUG_PYGF2X
+//#define DEBUG_PYGF2X
 
 // Define to enable DBG_PRINTF and DBG_PRINTF_DIGITS printouts
 //#define DEBUG_PYGF2X_VERBOSE
 
 // Define to restrict DBG_PRINTF and DBG_PRINTF_DIGITS printouts to a specific function
-//#define DEBUG_PYGF2X_VERBOSE_FUNCTION "pygf2x_divmod"
+//#define DEBUG_PYGF2X_VERBOSE_FUNCTION "mul_nl_nr"
 
 #ifdef DEBUG_PYGF2X_VERBOSE_FUNCTION
 #define DEBUG_PYGF2X_COND if(strcmp(__func__,DEBUG_PYGF2X_VERBOSE_FUNCTION)==0)
@@ -351,7 +351,7 @@ pygf2x_sqr(PyObject *self, PyObject *args)
     return (PyObject *)p;
 }
 
-static void mul_nl_nr(digit * restrict const p,
+static void mul_nl_nr(digit * restrict p,
 		      const digit * restrict const l0, int nl,
 		      const digit * restrict const r0, int nr)
 //
@@ -401,51 +401,85 @@ static void mul_nl_nr(digit * restrict const p,
 	}
     } else if(nl>1 && nr>1) {
     // Use Karatsuba
-	int m = GF2X_MIN(nl/2,nr/2);
+	// The choice of m is not obvious
+	// Below 
+	const int m = (GF2X_MIN(nl,nr) + (abs(nl-nr)&1)) >>1;
+	const int nl1 = nl-m;
+	const int nr1 = nr-m;
 	const digit * restrict l1 = l0+m;
 	const digit * restrict r1 = r0+m;
 	DBG_PRINTF("%-2d:[0,%d,%d],[0,%d,%d]\n",depth,m,nl,m,nr);
 
-	digit r01[nr-m];               // r01 = r0^r1
-	for(int i=0; i<m; i++)
-	    r01[i] = r0[i] ^ r1[i];
-	for(int i=m; i<nr-m; i++)
-	    r01[i] = r1[i];
+	const int nr01 = GF2X_MAX(m, nr1);
+	digit r01[nr01];               // r01 = r0^r1
+	if(m>nr1) {
+	    for(int i=0; i<nr1; i++)
+		r01[i] = r0[i] ^ r1[i];
+	    for(int i=nr1; i<m; i++)
+		r01[i] = r0[i];
+	} else {
+	    for(int i=0; i<m; i++)
+		r01[i] = r0[i] ^ r1[i];
+	    for(int i=m; i<nr1; i++)
+		r01[i] = r1[i];
+	}
 	
-	digit l01[nl-m];               // l01 = l0^l1
-	for(int i=0; i<m; i++)
-	    l01[i] = l0[i] ^ l1[i];
-	for(int i=m; i<nl-m; i++)
-	    l01[i] = l1[i];
+	const int nl01 = GF2X_MAX(m, nl1);
+	digit l01[nl01];               // l01 = l0^l1
+	if(m>nl1) {
+	    for(int i=0; i<nl1; i++)
+		l01[i] = l0[i] ^ l1[i];
+	    for(int i=nl1; i<m; i++)
+		l01[i] = l0[i];
+	} else {
+	    for(int i=0; i<m; i++)
+		l01[i] = l0[i] ^ l1[i];
+	    for(int i=m; i<nl1; i++)
+		l01[i] = l1[i];
+	}
 
 #ifdef DEBUG_PYGF2X
 	depth += 1;
 #endif
-	digit z0[2*m];                 // z0 = l0*r0
-	memset(z0,0,sizeof(z0));
-	mul_nl_nr(z0, l0, m, r0, m);
+	const int nz0 = 2*m;
+	const int nz2 = nl1+nr1;
+	digit z02[nz0+nz2];           // z0 = l0*r0, z2 = l1*r1
+	memset(z02,0,sizeof(z02));
+	mul_nl_nr(z02, l0, m, r0, m);
+	mul_nl_nr(z02+nz0, l1, nl1, r1, nr1);
 
-	digit z2[(nl-m)+(nr-m)];       // z2 = l1*r1
-	memset(z2,0,sizeof(z2));
-	mul_nl_nr(z2, l1, nl-m, r1, nr-m);
-	
-	digit z1[(nl-m)+(nr-m)];       // z1 = l01*r01
-	memset(z1,0,sizeof(z1));
-	mul_nl_nr(z1, l01, nl-m, r01, nr-m);
+	const int nz1 = nl01+nr01;
+	digit z1[nz1];                // z1 = l01*r01
+	if(nz0>nz2) {
+	    for(int i=0; i<nz2; i++)
+		z1[i] = z02[i] ^z02[nz0+i];
+	    for(int i=nz2; i<nz0; i++)
+		z1[i] = z02[i];
+	    memset(z1+nz0, 0, (nz1-nz0)*sizeof(digit));
+	} else {
+	    for(int i=0; i<nz0; i++)
+		z1[i] = z02[i] ^z02[nz0+i];
+	    for(int i=nz0; i<nz2; i++)
+		z1[i] = z02[nz0+i];
+	    memset(z1+nz2, 0, (nz1-nz2)*sizeof(digit));
+	}
+	mul_nl_nr(z1, l01, nl01, r01, nr01);
 
 #ifdef DEBUG_PYGF2X
 	depth -= 1;
 #endif
-	for(int id_p=0; id_p<2*m; id_p++)
-	    p[id_p] ^= z0[id_p];
+	const digit * z020 = z02;
+	const digit * z10 = z1;
 
-	for(int id_p=0; id_p<2*m; id_p++)
-	    (p+m)[id_p] ^= z0[id_p] ^ z1[id_p] ^ z2[id_p];
-	for(int id_p=2*m; id_p<(nl-m)+(nr-m); id_p++)
-	    (p+m)[id_p] ^= z1[id_p] ^ z2[id_p];
+	// p += z0 + (z0+z1+z2) x^m + z2 x^(2m)
+	for(int id_p=0; id_p<m; id_p++)
+	    *p++ ^= *z020++;
 
-	for(int id_p=0; id_p<(nl-m)+(nr-m); id_p++)
-	    (p+2*m)[id_p] ^= z2[id_p];
+	for(int id_p=0; id_p<nz1; id_p++)
+	    *p++ ^= *z10++ ^*z020++;
+	
+	for(int id_p=nz1-m; id_p<nz2; id_p++)
+	    *p++ ^= *z020++;
     }
 }
 
