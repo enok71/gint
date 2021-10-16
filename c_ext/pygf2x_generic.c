@@ -31,7 +31,7 @@
 #define PYGF2X_MAX_DIGITS (9000000/PyLong_SHIFT)
 
 // Define to enable DBG_ASSERT checks
-#define DEBUG_PYGF2X
+//#define DEBUG_PYGF2X
 
 // Define to enable DBG_PRINTF and DBG_PRINTF_DIGITS printouts
 //#define DEBUG_PYGF2X_VERBOSE
