@@ -383,6 +383,17 @@ static void mul_nl_nr(digit * restrict p,
 #endif
 	else
 	    mul_digit_nr(p, r0[0], l0, nl);
+    } else if(nr < KARATSUBA_LIMIT && nl < KARATSUBA_LIMIT) {
+    // Perform standard multiplication
+	twodigits pi = 0;
+	for(int ip=0; ip<nl+nr-1; ip++) {
+	    for(int il=GF2X_MAX(0, ip-nr+1), ir=ip-il; il<nl && ir>=0; il++, ir--) {
+		pi ^= mul_digit_digit(l0[il], r0[ir]);
+	    }
+	    p[ip] ^= pi & PyLong_MASK;
+	    pi >>= PyLong_SHIFT;
+	}
+	p[nl+nr-1] ^= pi;
     } else if(nl > 2*nr) {
     // Divide l to form more equal sized pieces
 	int nc = nl/nr; // Number of chunks

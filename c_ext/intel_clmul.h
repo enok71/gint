@@ -1,6 +1,7 @@
 #include <immintrin.h>
 
 #define PYGF2X_USE_SSE_CLMUL
+#define KARATSUBA_LIMIT 16
 
 #define ATOM 8
 #define mul_ATOM_15(a,b) mul_8_15(a,b)

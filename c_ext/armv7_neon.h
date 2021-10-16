@@ -2,6 +2,7 @@
 #include <arm_neon.h>
 
 #define PYGF2X_USE_ARMV7_NEON
+#define KARATSUBA_LIMIT 8
 
 #define ATOM 8
 #define mul_ATOM_15(a,b) mul_8_15(a,b)

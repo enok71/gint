@@ -1,6 +1,7 @@
 #define ATOM 5
 #define mul_ATOM_15 mul_5_15
 #define mul_ATOM_30 mul_5_30
+#define KARATSUBA_LIMIT 4
 
 static inline uint32_t
 mul_5_15(uint8_t l, uint16_t r)
