@@ -46,9 +46,13 @@
 #endif
 
 #ifdef DEBUG_PYGF2X
-#include <execinfo.h>
 #define DBG_ASSERT(x) { if (! (x) ) { fprintf(stderr,"Assertion failed on line %d: %s\n",__LINE__,#x); my_abort(); } }
+#ifdef __GNUC__
+#include <execinfo.h>
+#endif
+#include <stdlib.h>
 static void my_abort() {
+#ifdef __GNUC__
   void *array[3];
   size_t size;
 
@@ -57,6 +61,7 @@ static void my_abort() {
 
   // print out all the frames to stderr
   backtrace_symbols_fd(array, size, STDERR_FILENO);
+#endif
   exit(1);
 }
 #else
