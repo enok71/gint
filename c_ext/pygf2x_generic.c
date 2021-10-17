@@ -16,7 +16,7 @@
 #include <stdio.h>
 
 // Max value size
-#define PYGF2X_MAX_DIGITS (9000000/PyLong_SHIFT)
+static Py_ssize_t PYGF2X_MAX_DIGITS = (9000000/PyLong_SHIFT);
 
 // Define to enable DBG_ASSERT checks
 //#define DEBUG_PYGF2X
@@ -1363,14 +1363,38 @@ pygf2x_divmod(PyObject *self, PyObject *args)
     return Py_BuildValue("OO", q, r);
 }
 
-PyObject *pygf2x_MAX_GINT(PyObject *self,
-			  PyObject *args)
+PyObject *pygf2x_get_MAX_GINT(PyObject *self,
+			      PyObject *args)
 {
     PyLongObject *q = _PyLong_New(PYGF2X_MAX_DIGITS);
     for(int i=0; i<PYGF2X_MAX_DIGITS; i++)
 	q->ob_digit[i] = PyLong_MASK;
 
     return (PyObject *)q;
+}
+
+PyObject *pygf2x_get_MAX_BITS(PyObject *self,
+			  PyObject *nbits_obj)
+{
+    return PyLong_FromSsize_t(PYGF2X_MAX_DIGITS*PyLong_SHIFT);
+}
+
+PyObject *pygf2x_set_MAX_BITS(PyObject *self,
+			      PyObject *nbits_obj)
+{
+    if (! PyLong_CheckExact(nbits_obj)) {
+	PyErr_SetString(PyExc_ValueError, "Argument to set_max_bits must be an integer");
+	return NULL;
+    }
+    Py_ssize_t nbits = PyLong_AsSsize_t(nbits_obj);
+    if(nbits%PyLong_SHIFT) {
+	PyErr_SetString(PyExc_ValueError, "Argument is not a multiple of digit size (sys.int_info.bits_per_digit)");
+	return NULL;
+    }
+    PYGF2X_MAX_DIGITS = nbits/PyLong_SHIFT;
+
+    Py_INCREF(Py_None);
+    return Py_None;
 }
 
 PyMethodDef pygf2x_generic_functions[] =
@@ -1407,10 +1431,22 @@ PyMethodDef pygf2x_generic_functions[] =
         "Multiplicative inverse of integer as polynomial over GF(2), with given precision"
     },
     {
-        "MAX_GINT",
-        pygf2x_MAX_GINT,
+        "get_MAX_GINT",
+        pygf2x_get_MAX_GINT,
         METH_NOARGS,
-	"Maximum allowed value"
+	"Get maximum allowed value"
+    },
+    {
+        "get_MAX_BITS",
+        pygf2x_get_MAX_BITS,
+        METH_NOARGS,
+	"Get maximum allowed gint bit_length"
+    },
+    {
+        "set_MAX_BITS",
+        pygf2x_set_MAX_BITS,
+        METH_O,
+	"Set maximum allowed gint bit_length"
     },
     {
         NULL,                   // const char  *ml_name;  /* The name of the built-in function/method   */

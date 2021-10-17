@@ -11,7 +11,7 @@ import pygf2x_generic as gf2
 
 random.seed(1234567890)
 
-too_large = int(gi.MAX())+1
+too_large = int(gi.get_MAX())+1
 
 class test_sqr(unittest.TestCase):
 

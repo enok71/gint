@@ -188,5 +188,13 @@ class gint(int):
         return gint(int.from_bytes(value))
 
     @classmethod
-    def MAX(cls):
-        return gint(pygf2x.MAX_GINT())
+    def get_MAX(cls):
+        return gint(pygf2x.get_MAX_GINT())
+
+    @classmethod
+    def get_MAX_BITS(cls):
+        return pygf2x.get_MAX_BITS()
+
+    @classmethod
+    def set_MAX_BITS(cls, nbits):
+        return pygf2x.set_MAX_BITS(nbits)
