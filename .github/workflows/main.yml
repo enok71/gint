@@ -40,6 +40,8 @@ jobs:
       - name: Build wheel
         run: python -m cibuildwheel --output-dir dist/
         env:
+          CIBW_TEST_REQUIRES: pytest
+          CIBW_TEST_COMMAND: "pytest {project}/tests"
           CIBW_BUILD: cp36-*
 
       - uses: actions/upload-artifact@v2
