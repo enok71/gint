@@ -6,8 +6,7 @@
 #
 # Description:
 #
-# Define gint class (inifinite polynomial field) and gint_ring classes (polynomials
-# modulo some constant)
+# Define gint class (inifinite polynomial field)
 #
 ################################################################################
 
