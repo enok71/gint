@@ -427,7 +427,7 @@ static void mul_nl_nr(digit * restrict p,
 	DBG_PRINTF("%-2d:[0,%d,%d],[0,%d,%d]\n",depth,m,nl,m,nr);
 
 	const int nr01 = GF2X_MAX(m, nr1);
-	digit r01[nr01];               // r01 = r0^r1
+	digit * restrict const r01 = malloc(nr01*sizeof(digit));   // r01 = r0^r1
 	if(m>nr1) {
 	    for(int i=0; i<nr1; i++)
 		r01[i] = r0[i] ^ r1[i];
@@ -441,7 +441,7 @@ static void mul_nl_nr(digit * restrict p,
 	}
 	
 	const int nl01 = GF2X_MAX(m, nl1);
-	digit l01[nl01];               // l01 = l0^l1
+	digit * restrict const l01 = malloc(nl01*sizeof(digit));   // l01 = l0^l1
 	if(m>nl1) {
 	    for(int i=0; i<nl1; i++)
 		l01[i] = l0[i] ^ l1[i];
@@ -459,13 +459,13 @@ static void mul_nl_nr(digit * restrict p,
 #endif
 	const int nz0 = 2*m;
 	const int nz2 = nl1+nr1;
-	digit z02[nz0+nz2];           // z0 = l0*r0, z2 = l1*r1
-	memset(z02,0,sizeof(z02));
+	digit * restrict const z02 = malloc((nz0+nz2)*sizeof(digit));  // z0 = l0*r0, z2 = l1*r1
+	memset(z02,0,(nz0+nz2)*sizeof(digit));
 	mul_nl_nr(z02, l0, m, r0, m);
 	mul_nl_nr(z02+nz0, l1, nl1, r1, nr1);
 
 	const int nz1 = nl01+nr01;
-	digit z1[nz1];                // z1 = l01*r01
+	digit * restrict const z1 = malloc(nz1*sizeof(digit));   // z1 = l01*r01
 	if(nz0>nz2) {
 	    for(int i=0; i<nz2; i++)
 		z1[i] = z02[i] ^z02[nz0+i];
@@ -480,6 +480,8 @@ static void mul_nl_nr(digit * restrict p,
 	    memset(z1+nz2, 0, (nz1-nz2)*sizeof(digit));
 	}
 	mul_nl_nr(z1, l01, nl01, r01, nr01);
+	free(r01);
+	free(l01);
 
 #ifdef DEBUG_PYGF2X
 	depth -= 1;
@@ -496,6 +498,9 @@ static void mul_nl_nr(digit * restrict p,
 	
 	for(int id_p=nz1-m; id_p<nz2; id_p++)
 	    *p++ ^= *z020++;
+
+	free(z1);
+	free(z02);
     }
 }
 
@@ -549,8 +554,8 @@ pygf2x_mul(PyObject *self, PyObject *args)
         return NULL;
     }
     
-    digit result[ndigs_l + ndigs_r];
-    memset(result,0,sizeof(result));
+    digit * restrict const result = malloc((ndigs_l + ndigs_r)*sizeof(digit));
+    memset(result,0,(ndigs_l + ndigs_r)*sizeof(digit));
     
     DBG_PRINTF("Bits per digit   = %-4d\n",PyLong_SHIFT);
     DBG_PRINTF("Left factor bits = %-4d\n",nbits_l);
@@ -563,6 +568,7 @@ pygf2x_mul(PyObject *self, PyObject *args)
 
     PyLongObject *p = _PyLong_New(ndigs_p);
     memcpy(p->ob_digit, result, sizeof(digit)*ndigs_p);
+    free(result);
 
     return (PyObject *)p;
 }
@@ -671,8 +677,8 @@ inverse(digit *restrict e_digits, int ndigs_e, int nbits_e,
     // Shift the entire d to the left so that it is left-aligne, i.e. the most significant
     // digit has most significant bit =1
     // Also truncate it, or fill it with zero, from the right, so that it has ndigs_e digits.
-    digit d[ndigs_e];
-    memset(d,0,sizeof(d));
+    digit * restrict const d = malloc(ndigs_e*sizeof(digit));
+    memset(d,0,ndigs_e*sizeof(digit));
     {
 	const int shift = (PyLong_SHIFT-1) - (nbits_d + (PyLong_SHIFT-1))%PyLong_SHIFT;
 	int n0 = GF2X_MAX(0,ndigs_d-ndigs_e);
@@ -758,14 +764,14 @@ inverse(digit *restrict e_digits, int ndigs_e, int nbits_e,
     for(ncorrect=1; (ncorrect<<1)<ndigs_e; ncorrect<<=1) {
 	DBG_PRINTF("ncorrect=%d\n",ncorrect);
 	int n = ncorrect<<1;
-	digit x2[n];
-	memset(x2, 0, sizeof(x2));
+	digit * restrict const x2 = malloc(n*sizeof(digit));
+	memset(x2, 0, n*sizeof(digit));
 	square_n(x2, &e_digits[ndigs_e-ncorrect], ncorrect);  // The highest bit of x2 is now 0
 	DBG_PRINTF_DIGITS("x2=", x2, n);
     
 	int nn = n<<1;
-	digit etmp[nn];
-	memset(etmp, 0, sizeof(etmp));
+	digit * restrict const etmp = malloc(nn*sizeof(digit));
+	memset(etmp, 0, nn*sizeof(digit));
 	//
 	// The reason why n bits from x2 and n from etmp are enough
 	// to correctly form nn=2n correct bits in etmp by the
@@ -774,11 +780,13 @@ inverse(digit *restrict e_digits, int ndigs_e, int nbits_e,
 	// because x2 is a square.
 	//
 	mul_nl_nr(etmp, &d[ndigs_e-n], n, x2, n);                // The 2 highest bits of etmp is now 0
+	free(x2);
 	DBG_PRINTF_DIGITS("etmp=", etmp, nn);
 
 	// Discard lowest 2*(PyLong_SHIFT*n-1) bits of etmp
 	for(int i=1; i<=n; i++)
 	    e_digits[ndigs_e-i] = ((etmp[nn-i] << 2) &PyLong_MASK) | (etmp[nn-1-i] >> (PyLong_SHIFT-2));
+	free(etmp);
 	DBG_PRINTF_DIGITS("e=", e_digits, ndigs_e);
     }
     //
@@ -789,8 +797,8 @@ inverse(digit *restrict e_digits, int ndigs_e, int nbits_e,
     {
 	DBG_PRINTF("ncorrect=%d\n",ncorrect);
 	int n = ncorrect<<1;
-	digit x2[n];
-	memset(x2, 0, sizeof(x2));
+	digit * restrict const x2 = malloc(n*sizeof(digit));
+	memset(x2, 0, n*sizeof(digit));
 	square_n(x2, &e_digits[ndigs_e-ncorrect], ncorrect);  // The highest bit of x2 is now 0
 	DBG_PRINTF_DIGITS("x2=", x2, n);
 	DBG_PRINTF_DIGITS("d0=", d, ndigs_e);
@@ -805,9 +813,10 @@ inverse(digit *restrict e_digits, int ndigs_e, int nbits_e,
 	x2[0] = ((x2[0] << 1) &PyLong_MASK);
 #endif	
 	int nn = ndigs_e<<1;
-	digit etmp[nn];
-	memset(etmp, 0, sizeof(etmp));
+	digit * restrict const etmp = malloc(nn*sizeof(digit));
+	memset(etmp, 0, nn*sizeof(digit));
 	mul_nl_nr(etmp, d, ndigs_e, &x2[n-ndigs_e], ndigs_e);
+	free(x2);
 	DBG_PRINTF_DIGITS("etmp=", etmp, nn);
 
 	// Copy back to e_digits, discarding all but the ndigs_e*PyLong_SHIFT significant bits
@@ -818,9 +827,12 @@ inverse(digit *restrict e_digits, int ndigs_e, int nbits_e,
 	    e_digits[ndigs_e-i] = ((etmp[nn-i] << 1) &PyLong_MASK) | (etmp[nn-1-i] >> (PyLong_SHIFT-1));
 #else
 	    e_digits[ndigs_e-i] = ((etmp[nn-i] << 2) &PyLong_MASK) | (etmp[nn-1-i] >> (PyLong_SHIFT-2));
-#endif	
+#endif
+	free(etmp);
 	DBG_PRINTF_DIGITS("e=", e_digits, ndigs_e);
     }
+
+    free(d);
 
     // Shift e_digits from left-aligned to properly right-aligned
     const int shift = (PyLong_SHIFT-1) - (nbits_e -1)%PyLong_SHIFT;
@@ -918,7 +930,7 @@ rinverse(digit *restrict e_digits, int ndigs_e, int nbits_e,
     // Copy the lowest nbits_e bits from d_digits to d as starting value
     // Shift the entire d to the left so that the most significant digit has most significant bit =1
     // Truncate it, or fill it with zero, so that it has ndigs_e digits.
-    digit d[ndigs_e];
+    digit * restrict const d = malloc(ndigs_e*sizeof(digit));
     if(ndigs_e<=ndigs_d) {
 	memcpy(d, d_digits, ndigs_e*sizeof(digit));
     } else {
@@ -995,21 +1007,23 @@ rinverse(digit *restrict e_digits, int ndigs_e, int nbits_e,
     for(ncorrect=1; (ncorrect<<1)<ndigs_e; ncorrect<<=1) {
 	DBG_PRINTF("Newton Step: ncorrect=%d\n",ncorrect);
 	int n = ncorrect<<1;
-	digit x2[n];
-	memset(x2, 0, sizeof(x2));
+	digit * restrict const x2 = malloc(n*sizeof(digit));
+	memset(x2, 0, n*sizeof(digit));
 	square_n(x2, &e_digits[0], ncorrect);
 	DBG_PRINTF_DIGITS("x2=", x2, n);
 	DBG_PRINTF_DIGITS("d0=", d, ndigs_e);
     
 	int nn = n<<1;
-	digit etmp[nn];
-	memset(etmp, 0, sizeof(etmp));
+	digit * restrict const etmp = malloc(nn*sizeof(digit));
+	memset(etmp, 0, nn*sizeof(digit));
 	mul_nl_nr(etmp, d, n, x2, n);
+	free(x2);
 	DBG_PRINTF_DIGITS("etmp=", etmp, nn);
 
 	// Discard everything except the n lowest digits of etmp
 	for(int i=0; i<n; i++)
 	    e_digits[i] = etmp[i];
+	free(etmp);
 	DBG_PRINTF_DIGITS("e=", e_digits, ndigs_e);
     }
     // e_digits now contains <ncorrect> correct digits
@@ -1020,27 +1034,30 @@ rinverse(digit *restrict e_digits, int ndigs_e, int nbits_e,
     {
 	DBG_PRINTF("Newton Final: ncorrect=%d\n",ncorrect);
 	int n = ncorrect<<1;
-	digit x2[n];
-	memset(x2, 0, sizeof(x2));
+	digit * restrict const x2 = malloc(n*sizeof(digit));
+	memset(x2, 0, n*sizeof(digit));
 	square_n(x2, e_digits, ncorrect);
 	DBG_PRINTF_DIGITS("x2=", x2, n);
 	DBG_PRINTF_DIGITS("d0=", d, ndigs_e);
     
 	int nn = ndigs_e<<1;
-	digit etmp[nn];
-	memset(etmp, 0, sizeof(etmp));
+	digit * restrict const etmp = malloc(nn*sizeof(digit));
+	memset(etmp, 0, nn*sizeof(digit));
 	DBG_ASSERT(ndigs_e<=n);
 	mul_nl_nr(etmp, d, ndigs_e, x2, ndigs_e);
+	free(x2);
 	DBG_PRINTF_DIGITS("etmp=", etmp, nn);
 
 	// Discard everything except the nbits_e lowest bits of etmp
 	DBG_ASSERT(ndigs_e<=nn);
 	for(int i=0; i<ndigs_e; i++)
 	    e_digits[i] = etmp[i];
+	free(etmp);
 	DBG_PRINTF_DIGITS("e=", e_digits, ndigs_e);
 	e_digits[ndigs_e-1] &= ((1 << ((nbits_e-1) % PyLong_SHIFT +1)) -1);
 	DBG_PRINTF_DIGITS("e=", e_digits, ndigs_e);
     }
+    free(d);
     return;
 }
 
@@ -1091,8 +1108,8 @@ pygf2x_rinv(PyObject *self, PyObject *args)
     DBG_PRINTF("Denominator bits = %-4d\n",nbits_d);
     DBG_PRINTF("Requested bits   = %-4d\n",nbits_e);
 
-    digit e_digits[ndigs_e];
-    memset(e_digits, 0, sizeof(e_digits));
+    digit * restrict const e_digits = malloc(ndigs_e*sizeof(digit));
+    memset(e_digits, 0, ndigs_e*sizeof(digit));
     
     rinverse(e_digits, ndigs_e, nbits_e,
 	     d->ob_digit, ndigs_d, nbits_d);
@@ -1103,6 +1120,7 @@ pygf2x_rinv(PyObject *self, PyObject *args)
     
     PyLongObject *e = _PyLong_New(ndigs_e);
     memcpy(e->ob_digit, e_digits, ndigs_e*sizeof(digit));
+    free(e_digits);
     
     DBG_PRINTF_DIGITS("Inverse:", e->ob_digit, ndigs_e);
 
@@ -1183,7 +1201,7 @@ pygf2x_divmod(PyObject *self, PyObject *args)
     digit *restrict q_digits = q->ob_digit;
     memset(q_digits,0,ndigs_q*sizeof(digit));
     
-    digit r_digits[ndigs_r]; // Initialize to numerator
+    digit * restrict const r_digits = malloc(ndigs_r*sizeof(digit)); // Initialize to numerator
     memset(r_digits+ndigs_u,0,(ndigs_r-ndigs_u)*sizeof(digit));
     memcpy(r_digits, numerator->ob_digit, ndigs_u*sizeof(digit));
     
@@ -1258,8 +1276,8 @@ pygf2x_divmod(PyObject *self, PyObject *args)
 	    nbits_e = PyLong_SHIFT*ndigs_e;
 
 	    // Compute the inverse e = (d)^-1
-	    digit e[ndigs_e];
-	    memset(e, 0, sizeof(e));
+	    digit * restrict const e = malloc(ndigs_e*sizeof(digit));
+	    memset(e, 0, ndigs_e*sizeof(digit));
 	    inverse(e, ndigs_e, nbits_e,
 		    denominator->ob_digit, ndigs_d, nbits_d);
 	    DBG_PRINTF_DIGITS("inverse          :",e,ndigs_e);
@@ -1289,8 +1307,8 @@ pygf2x_divmod(PyObject *self, PyObject *args)
 		int ndigs_qi = nbits_qi/PyLong_SHIFT;
 
 		// dr = (dq*d) << nqi
-		digit dr[ndigs_d+1];
-		memset(dr,0,sizeof(dr));
+		digit * restrict const dr = malloc((ndigs_d+1)*sizeof(digit));
+		memset(dr, 0, (ndigs_d+1)*sizeof(digit));
 		mul_nl_nr(dr, &dq, 1, denominator->ob_digit, ndigs_d);
 		DBG_PRINTF_DIGITS("dr  :",dr,ndigs_d+1);
 		DBG_PRINTF("dq=%x\n",dq);
@@ -1298,6 +1316,7 @@ pygf2x_divmod(PyObject *self, PyObject *args)
 		for(int i=ndigs_qi; i<ndigs_r; i++) {
 		    r_digits[i] ^= dr[i - ndigs_qi];
 		}
+		free(dr);
 		DBG_PRINTF_DIGITS("r_0              :",r_digits,ndigs_r);		
 		
 		nbits_r -= nbits_ei;
@@ -1311,18 +1330,19 @@ pygf2x_divmod(PyObject *self, PyObject *args)
 		DBG_PRINTF("nbits_ei=%d, ndigs_ei=%d\n",nbits_ei,ndigs_ei);
 
 		// dq = ((r >> (nr-ne)) *e) >> (ne-1)
-		digit dq[2*ndigs_ei];
-		memset(dq, 0, sizeof(dq));
+		digit * restrict const dq = malloc((2*ndigs_ei)*sizeof(digit));
+		memset(dq, 0, (2*ndigs_ei)*sizeof(digit));
 		int ndigs_ri = (nbits_r + (PyLong_SHIFT-1))/PyLong_SHIFT;
 		{
 		    int nbits_ri = (nbits_r-1)%PyLong_SHIFT+1;
-		    digit dr[ndigs_ei];
-		    memset(dr, 0, sizeof(dr));
+		    digit * restrict const dr = malloc(ndigs_ei*sizeof(digit));
+		    memset(dr, 0, ndigs_ei*sizeof(digit));
 		    for(int i=0; i<ndigs_ei; i++)
 			dr[i] = (r_digits[ndigs_ri - ndigs_ei +i] << (PyLong_SHIFT - nbits_ri) & PyLong_MASK) |
 			    r_digits[ndigs_ri - ndigs_ei +i -1] >> nbits_ri;
 		    DBG_PRINTF_DIGITS("r>>(nr-ne)       :",dr,ndigs_ei);
 		    mul_nl_nr(dq, &e[ndigs_e - ndigs_ei], ndigs_ei, dr, ndigs_ei);
+		    free(dr);
 		}
 		rshift(dq, 2*ndigs_ei, nbits_ei-1);
 		// |dq| is now = nbits_ei (the uppermost ndigs_ei digits is 0)
@@ -1334,19 +1354,22 @@ pygf2x_divmod(PyObject *self, PyObject *args)
 		DBG_PRINTF("nbits_r=%d, nbits_d=%d, nbits_e=%d, ndigs_qi=%d\n",nbits_r,nbits_d, nbits_e, ndigs_qi);
 		
 		// dr = (dq*d) << nqi
-		digit dr[ndigs_ei + ndigs_d];
-		memset(dr, 0, sizeof(dr));
+		digit * restrict const dr = malloc((ndigs_ei + ndigs_d)*sizeof(digit));
+		memset(dr, 0, (ndigs_ei + ndigs_d)*sizeof(digit));
 		mul_nl_nr(dr, dq, ndigs_ei, denominator->ob_digit, ndigs_d);
 		DBG_PRINTF_DIGITS("dr               :",dr,ndigs_ei+ndigs_d);
 
 		for(int i=ndigs_qi; i < ndigs_ri; i++)
 		    if(dr[i-ndigs_qi])
 			r_digits[i] ^= dr[i-ndigs_qi];
+		free(dr);
 		for(int i=0; i<ndigs_ei; i++)
 		    if(dq[i])
 			q_digits[ndigs_qi+i] ^= dq[i];
+		free(dq);
 		DBG_PRINTF_DIGITS("r                :",r_digits,ndigs_r);
 	    }
+	    free(e);
 	}
     }
 
@@ -1359,6 +1382,7 @@ pygf2x_divmod(PyObject *self, PyObject *args)
     
     PyLongObject *r = _PyLong_New(ndigs_r);
     memcpy(r->ob_digit, r_digits, sizeof(digit)*ndigs_r);
+    free(r_digits);
 
     return Py_BuildValue("OO", q, r);
 }
