@@ -124,7 +124,7 @@ pygf2x_mul(PyObject *self, PyObject *args) {
 
     int n5_l = (nbits_l+4)/5;
     int n5_r = (nbits_r+4)/5;
-    int n5_p = n5_l+n5_r-1;
+    int n5_p = n5_l+n5_r;
 
     int ndigs_p = (n5_l+n5_r+N5_PER_DIGIT-1)/N5_PER_DIGIT;
     digit result[ndigs_p];
@@ -137,13 +137,13 @@ pygf2x_mul(PyObject *self, PyObject *args) {
 
     for(int i=0; i<n5_p; i++) {
         uint16_t p5 = 0;
-	int je = i;
+	int je = i+1;
 	if(je > n5_l)
            je = n5_l;
 	int jb = 0;
-	if(i-jb > n5_r)
-            jb = i-n5_r;
-        for(int jl=jb; jl<=je; jl++) {
+	if(i-jb >= n5_r)
+            jb = i-n5_r +1;
+        for(int jl=jb; jl<je; jl++) {
             int jr = i-jl;
 	    int jdl = jl/N5_PER_DIGIT;
 	    int jdr = jr/N5_PER_DIGIT;
