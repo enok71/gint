@@ -6,8 +6,7 @@
 #
 # Description:
 #
-# Define gint class (inifinite polynomial field) and gint_ring classes (polynomials
-# modulo some constant)
+# Define gint class (inifinite polynomial field).
 #
 ################################################################################
 
@@ -170,24 +169,3 @@ class gint(int):
     def from_bytes(value):
         return gint(int.from_bytes(value))
     
-def main():
-    # Test
-    import random
-    n=gint(random.randint(0,10**213))
-    d=gint(random.randint(0,10**29))
-    fmt='%-20s=%-30X'
-    print(fmt%('n',n))
-    print(fmt%('d',d))
-
-    q,r = divmod(n,d)
-    print(fmt%('q',q))
-    print(fmt%('r',r))
-
-    p = q*d
-    print(fmt%('q*d',p))
-    print(fmt%('q*d+r',p+r))
-
-    print(p+r == n)
-
-if __name__ == '__main__':
-    main()
