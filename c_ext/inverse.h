@@ -45,7 +45,6 @@ inverse(digit *restrict e_digits, int ndigs_e, int nbits_e,
     DBG_PRINTF("inv: ndigs_d=%d, ndigs_e=%d\n", ndigs_d, ndigs_e);
     DBG_PRINTF_DIGITS("d=", d_digits, ndigs_d);
 
-    const int STATIC_LIMIT = 32;
     const bool use_heap = (ndigs_e > STATIC_LIMIT);
     
     // Shift the entire d to the left so that it is left-aligne, i.e. the most significant

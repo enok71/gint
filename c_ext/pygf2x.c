@@ -19,6 +19,9 @@
 // Max value size
 static Py_ssize_t PYGF2X_MAX_DIGITS = (9000000/PyLong_SHIFT);
 
+// This number controls when malloc is used instead of automatic arrays
+#define STATIC_LIMIT 32
+
 // Define to enable DBG_ASSERT checks
 //#define DEBUG_PYGF2X
 
@@ -329,8 +332,6 @@ pygf2x_mul(PyObject *self, PyObject *args)
 // Multiply two Python integers, interpreted as polynomials over GF(2)
 //
 {
-    const int STATIC_LIMIT = 32;
-    
     (void)self;
 
     PyLongObject *fl, *fr;

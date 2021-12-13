@@ -15,7 +15,6 @@ static void mul_nl_nr(digit * restrict p,
 // Recursive function for Karatsuba multiplication
 //
 {
-    const int STATIC_LIMIT = 256;
 #ifdef DEBUG_PYGF2X
     static int depth = 0;
 #endif
@@ -79,7 +78,7 @@ static void mul_nl_nr(digit * restrict p,
 
         // Allocate all needed memory in one malloc, for performance
         const int nbuf = nl01+nr01+nz0+nz1+nz2;
-        digit bufs[STATIC_LIMIT];
+        digit bufs[STATIC_LIMIT*8];
         const bool use_heap = (size_t)nbuf > sizeof(bufs)/sizeof(digit);
         digit * const buf0 = use_heap ? malloc(nbuf*sizeof(digit)) : bufs;
         digit * buf = buf0;
