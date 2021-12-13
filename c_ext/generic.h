@@ -1,3 +1,13 @@
+/* -*- mode: c; c-basic-offset: 4; -*- */
+/*******************************************************************************
+ *
+ * Copyright (c) 2020 Oskar Enoksson. All rights reserved.
+ * Licensed under the MIT license. See LICENSE file in the project root for details.
+ *
+ * Description:
+ * Generic functions for polynomials over GF(2)
+ *
+ *******************************************************************************/
 #define ATOM 5
 #define mul_ATOM_15 mul_5_15
 #define mul_ATOM_30 mul_5_30
@@ -163,44 +173,60 @@ mul_30_30(uint32_t l, uint32_t r)
 static inline uint32_t
 sqr_15(uint16_t f)
 {
-  return ((uint32_t)sqr_8[f >> 8] << 16) ^ (uint32_t)sqr_8[f &0xff];
+    return ((uint32_t)sqr_8[f >> 8] << 16) ^ (uint32_t)sqr_8[f &0xff];
 }
 
 static void
 square_n(digit * restrict result, const digit *fdigits, int ndigs_f)
 //
-// Compute square and add it to p
+// Compute square into p
 // p += f^2
+//
+// The length of p must be twice ndigs_f. This may mean one extra digit in p at the most significant end
+// in order to make the algorithm simpler and faster
 //
 {
     int idp=0;
     for(int id=0; id<ndigs_f; id++) {
-	digit ic = fdigits[id];
+        digit ic = fdigits[id];
 #if (PyLong_SHIFT == 15)
-	digit pd0 = sqr_8[ic&0xff];
-	ic>>=8;
-	digit pd1 = sqr_8[ic&0x7f];
-	pd1 <<= 1;
-#elif (PyLong_SHIFT == 30)		
-	uint16_t pc0 = sqr_8[ic&0xff];
-	ic>>=8;
-	uint16_t pc1 = sqr_8[ic&0x7f];
-	digit pd0 = (pc1 << 16) ^ pc0;
-	ic>>=7;
-	uint16_t pc2 = sqr_8[ic&0xff];
-	ic>>=8;
-	uint16_t pc3 = sqr_8[ic&0x7f];
-	digit pd1 = (pc3 << 16) ^ pc2;
+        digit pd0 = sqr_8[ic&0xff];
+        ic>>=8;
+        digit pd1 = sqr_8[ic&0x7f];
+        pd1 <<= 1;
+#elif (PyLong_SHIFT == 30)              
+        uint16_t pc0 = sqr_8[ic&0xff];
+        ic>>=8;
+        uint16_t pc1 = sqr_8[ic&0x7f];
+        digit pd0 = (pc1 << 16) ^ pc0;
+        ic>>=7;
+        uint16_t pc2 = sqr_8[ic&0xff];
+        ic>>=8;
+        uint16_t pc3 = sqr_8[ic&0x7f];
+        digit pd1 = (pc3 << 16) ^ pc2;
 #else
 #error
 #endif
-	if(pd0) {
-	    result[idp] ^= pd0;
-	}
-	idp++;
-	if(pd1) {
-	    result[idp] ^= pd1;
-	}
-	idp++;
+        result[idp++] = pd0;
+        result[idp++] = pd1;
     }
+}
+
+static void mul_nl_nr_IMPL(digit * restrict p,
+                           const digit * restrict const l0, int nl,
+                           const digit * restrict const r0, int nr)
+//
+// Compute product and it to p
+// p += l*r
+//
+{
+    twodigits pi = 0;
+    for(int ip=0; ip<nl+nr-1; ip++) {
+        for(int il=GF2X_MAX(0, ip-nr+1), ir=ip-il; il<GF2X_MIN(nl, ip+1); il++, ir--) {
+            pi ^= mul_digit_digit(l0[il], r0[ir]);
+        }
+        p[ip] ^= pi & PyLong_MASK;
+        pi >>= PyLong_SHIFT;
+    }
+    p[nl+nr-1] ^= pi;
 }

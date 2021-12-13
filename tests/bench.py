@@ -7,6 +7,10 @@ import math
 from time import time,sleep
 import threading
 
+random.seed(1234567890)
+
+karatsuba_exp = math.log(3,2)
+
 class mul_thread (threading.Thread):
     def __init__(self, a, b):
         threading.Thread.__init__(self)
@@ -24,7 +28,7 @@ class mul_thread (threading.Thread):
         self.count = 0
         t0 = time()
         while True:
-            for n in range(0,max(1,10000000//(an*bn))):
+            for n in range(0,max(1,10000000//int((an*bn)**(karatsuba_exp/2)))):
                 a*b
             self.count += n+1
             if self.stop:
@@ -49,17 +53,13 @@ class div_thread (threading.Thread):
         self.count = 0
         t0 = time()
         while True:
-            for n in range(0,max(1,10000000//(un*dn))):
+            for n in range(0,max(1,10000000//int((un*dn)**(karatsuba_exp/2)))):
                 divmod(u,d)
             self.count += n+1
             if self.stop:
                 t1 = time()
                 break
         self.dt = t1-t0
-
-random.seed(1234567890)
-
-karatsuba_exp = math.log(3,2)
 
 un = 10000
 u=gi(random.randint(1<<(un-1),(1<<un)-1))
@@ -94,8 +94,20 @@ print('='*80)
 print('> MUL')
 print('='*80)
 print('%5s %12s %10s %6s'%("n", "count", "n_count", "bench"))
-while n<25000:
+while n<10000:
     n += max(5,n//5)
+    a=gi(random.randint(1<<(n-1),(1<<n)-1))
+    b=gi(random.randint(1<<(n-1),(1<<n)-1))
+    th = mul_thread(a,b)
+    th.start()
+    sleep(1)
+    th.stop = True
+    th.join()
+    val = th.count*n**karatsuba_exp/1.e6
+    line = '%5d %12d %10.3f %6.3f'%(n, th.count, th.count / th.dt, val)
+    print(line)
+while n<2000000:
+    n *= 2
     a=gi(random.randint(1<<(n-1),(1<<n)-1))
     b=gi(random.randint(1<<(n-1),(1<<n)-1))
     th = mul_thread(a,b)

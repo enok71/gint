@@ -10,7 +10,7 @@
 #
 ################################################################################
 
-import pygf2x_generic as pygf2x
+import pygf2x
 
 class gint(int):
     ''' Unbounded polynomial over GF(2)
@@ -23,7 +23,7 @@ class gint(int):
     '''
     def __init__(self, i0=0):
         ''' Create from integer '''
-        if i0.bit_length() > 9000000:
+        if i0.bit_length() > self.get_MAX_BITS():
             raise OverflowError("Attempt to create a gint with value out of range")
         int.__init__(i0)
     
@@ -152,7 +152,7 @@ class gint(int):
         if value==1:
             return gint(self)
 
-        if value*self.bit_length() > 9000000:
+        if value*self.bit_length() > self.get_MAX_BITS():
             raise OverflowError("Exponentiation result out of range")
         
         result = gint(1)
@@ -186,10 +186,6 @@ class gint(int):
     @classmethod
     def from_bytes(cls,value):
         return gint(int.from_bytes(value))
-
-    @classmethod
-    def get_MAX(cls):
-        return gint(pygf2x.get_MAX_GINT())
 
     @classmethod
     def get_MAX_BITS(cls):
