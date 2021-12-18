@@ -84,7 +84,7 @@ for i in range(1,imax):
     th.stop = True
     th.join()
     qn = max(un-dn+1,0)
-    val = th.count*(dn*qn)**(.5*karatsuba_exp)/1.e6
+    val = th.count*(dn*qn)**(.5*karatsuba_exp)/(1.e6*th.dt)
     print('%5d %5d %12d %10.3f %6.3f'%(qn, dn, th.count, th.count / th.dt, val))
 print('-'*80)
 
@@ -103,7 +103,7 @@ while n<10000:
     sleep(1)
     th.stop = True
     th.join()
-    val = th.count*n**karatsuba_exp/1.e6
+    val = th.count*n**karatsuba_exp/(1.e6*th.dt)
     line = '%5d %12d %10.3f %6.3f'%(n, th.count, th.count / th.dt, val)
     print(line)
 while n<2000000:
@@ -115,7 +115,7 @@ while n<2000000:
     sleep(1)
     th.stop = True
     th.join()
-    val = th.count*n**karatsuba_exp/1.e6
+    val = th.count*n**karatsuba_exp/(1.e6*th.dt)
     line = '%5d %12d %10.3f %6.3f'%(n, th.count, th.count / th.dt, val)
     print(line)
 print('-'*80)
